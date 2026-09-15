@@ -1,1 +1,29 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+*.iml
 txt
+
+# Go
+Callin-Go/bin/
+Callin-Go/tmp/
+*.exe
+*.test
+*.out
+vendor/
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Logs
+*.log
+
+# Misc
+node_modules/
