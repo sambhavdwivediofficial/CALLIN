@@ -73,5 +73,4 @@ Actively in early development. Backend and Android app are being built in tandem
 
 ## License
 
-© All rights reserved. Sambhav Dwivedi.
-See the [`LICENSE`](LICENSE) file for details.
+© All rights reserved. See the [`LICENSE`](LICENSE) file for details.
