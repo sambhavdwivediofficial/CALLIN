@@ -55,7 +55,6 @@ Full architecture notes: [`docs/architecture.md`](docs/architecture.md)
 | Backend | Go, WebSocket, PostgreSQL |
 | Real-time media | WebRTC · Opus · ICE/STUN/TURN |
 | Push notifications | Firebase Cloud Messaging |
-| Deployment | Render |
 
 ## Project structure
 
