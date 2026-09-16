@@ -72,7 +72,7 @@ fun AppRoot() {
 }
 
 // ---------- colors matching the web version ----------
-private val Ink0 = Color(0xFF03060E)
+private val Ink0 = Color(0xFF000000)
 private val Ink1 = Color(0xFF081324)
 private val Ink2 = Color(0xFF0C1E38)
 private val Beam = Color(0xFF2E90FF)
@@ -187,12 +187,7 @@ fun SplashScreen(onFinished: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Ink2, Ink1, Ink0),
-                    radius = 1400f
-                )
-            ),
+            .background(Ink0),
         contentAlignment = Alignment.Center
     ) {
 
@@ -225,26 +220,26 @@ fun SplashScreen(onFinished: () -> Unit) {
             ) {
 
                 // halo glow behind the logo
-                Box(
-                    Modifier
-                        .size(280.dp)
-                        .graphicsLayer {
-                            alpha = haloAlpha.value
-                            scaleX = haloScale.value
-                            scaleY = haloScale.value
-                        }
-                        .clip(CircleShape)
-                        .background(
-                            Brush.radialGradient(
-                                colors = listOf(
-                                    Beam.copy(alpha = 0.55f),
-                                    Beam.copy(alpha = 0.14f),
-                                    Color.Transparent
-                                )
-                            )
-                        )
-                        .blur(22.dp)
-                )
+//                Box(
+//                    Modifier
+//                        .size(280.dp)
+//                        .graphicsLayer {
+//                            alpha = haloAlpha.value
+//                            scaleX = haloScale.value
+//                            scaleY = haloScale.value
+//                        }
+//                        .clip(CircleShape)
+//                        .background(
+//                            Brush.radialGradient(
+//                                colors = listOf(
+//                                    Beam.copy(alpha = 0.55f),
+//                                    Beam.copy(alpha = 0.14f),
+//                                    Color.Transparent
+//                                )
+//                            )
+//                        )
+//                        .blur(22.dp)
+//                )
 
                 // blob (main logo shape)
                 Image(
