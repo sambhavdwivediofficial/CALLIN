@@ -1,0 +1,20 @@
+# Compiled binaries
+/bin/
+/tmp/
+callin-go
+callin-server
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Secrets
+secrets/
+*.pem
+*.key
+
+# Go
+vendor/
+*.test
+*.out
