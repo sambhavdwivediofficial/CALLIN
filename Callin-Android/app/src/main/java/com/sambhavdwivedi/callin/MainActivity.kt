@@ -197,7 +197,7 @@ fun SplashScreen(onFinished: () -> Unit) {
                 .size(260.dp)
                 .offset(x = (-90).dp, y = (-220).dp)
                 .clip(CircleShape)
-                .background(Beam.copy(alpha = 0.28f))
+                .background(BeamB.copy(alpha = 0.28f))
                 .blur(70.dp)
         )
         Box(
