@@ -26,6 +26,8 @@ type Config struct {
 	FCMProjectID          string
 	FCMServiceAccountFile string
 
+	GoogleWebClientID string
+
 	AllowedOrigins []string
 
 	RateLimitRPS   float64
@@ -46,6 +48,7 @@ func Load() (*Config, error) {
 
 		FCMProjectID:          os.Getenv("FCM_PROJECT_ID"),
 		FCMServiceAccountFile: os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
+		GoogleWebClientID:     os.Getenv("GOOGLE_WEB_CLIENT_ID"),
 
 		AllowedOrigins: splitAndTrim(getEnv("ALLOWED_ORIGINS", "*")),
 	}

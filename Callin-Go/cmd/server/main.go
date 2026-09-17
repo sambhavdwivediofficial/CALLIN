@@ -46,7 +46,18 @@ func main() {
 
 	userRepo := user.NewRepository(pool)
 	tokenManager := auth.NewTokenManager(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
-	authService := auth.NewService(userRepo, tokenManager)
+
+	var googleVerifier *auth.GoogleVerifier
+	if cfg.GoogleWebClientID == "" {
+		log.Warn("GOOGLE_WEB_CLIENT_ID not set — Google Sign-In is disabled")
+	} else {
+		googleVerifier, err = auth.NewGoogleVerifier(ctx, cfg.GoogleWebClientID)
+		if err != nil {
+			log.Error("initializing Google verifier", "error", err)
+			os.Exit(1)
+		}
+	}
+	authService := auth.NewService(userRepo, tokenManager, googleVerifier)
 
 	fcmClient, err := push.NewFCMClient(ctx, cfg.FCMProjectID, cfg.FCMServiceAccountFile, userRepo, log)
 	if err != nil {
@@ -78,10 +89,12 @@ func main() {
 	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
 	mux.HandleFunc("POST /api/v1/auth/refresh", authHandler.Refresh)
+	mux.HandleFunc("POST /api/v1/auth/google", authHandler.GoogleSignIn)
 
 	mux.Handle("GET /api/v1/users/me", requireAuth(http.HandlerFunc(userHandler.Me)))
 	mux.Handle("GET /api/v1/users", requireAuth(http.HandlerFunc(userHandler.List)))
 	mux.Handle("POST /api/v1/users/me/device", requireAuth(http.HandlerFunc(userHandler.RegisterDevice)))
+	mux.Handle("POST /api/v1/users/me/complete-profile", requireAuth(http.HandlerFunc(userHandler.CompleteProfile)))
 
 	mux.Handle("GET /api/v1/calls", requireAuth(http.HandlerFunc(callHandler.History)))
 

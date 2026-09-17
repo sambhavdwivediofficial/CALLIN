@@ -6,7 +6,8 @@ import (
 	"net/http"
 )
 
-// Handler exposes registration, login and token refresh over HTTP.
+// Handler exposes registration, login, token refresh, and Google
+// Sign-In over HTTP.
 type Handler struct {
 	service *Service
 }
@@ -22,7 +23,7 @@ type registerRequest struct {
 	DisplayName string `json:"display_name"`
 }
 
-// Register creates a new account.
+// Register creates a new classic (username+password) account.
 // POST /api/v1/auth/register
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	var req registerRequest
@@ -45,7 +46,7 @@ type loginRequest struct {
 	Password   string `json:"password"`
 }
 
-// Login authenticates an existing account.
+// Login authenticates an existing classic account.
 // POST /api/v1/auth/login
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req loginRequest
@@ -85,14 +86,40 @@ func (h *Handler) Refresh(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
+type googleSignInRequest struct {
+	IDToken string `json:"id_token"`
+}
+
+// GoogleSignIn verifies a Google ID token from the Android app and
+// logs the user in, creating a new (profile-incomplete) account the
+// first time this Google account is seen.
+// POST /api/v1/auth/google
+func (h *Handler) GoogleSignIn(w http.ResponseWriter, r *http.Request) {
+	var req googleSignInRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IDToken == "" {
+		writeError(w, http.StatusBadRequest, "id_token is required")
+		return
+	}
+
+	result, err := h.service.GoogleSignIn(r.Context(), req.IDToken)
+	if err != nil {
+		handleAuthError(w, err)
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
 func handleAuthError(w http.ResponseWriter, err error) {
 	switch {
-	case errors.Is(err, ErrInvalidCredentials):
+	case errors.Is(err, ErrInvalidCredentials), errors.Is(err, ErrInvalidGoogleToken):
 		writeError(w, http.StatusUnauthorized, "invalid credentials")
 	case errors.Is(err, ErrUsernameTaken):
 		writeError(w, http.StatusConflict, "username or email already in use")
-	case errors.Is(err, ErrWeakPassword), errors.Is(err, ErrInvalidUsername):
+	case errors.Is(err, ErrWeakPassword), errors.Is(err, ErrInvalidUsername), errors.Is(err, ErrNoPassword):
 		writeError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, ErrGoogleNotConfigured):
+		writeError(w, http.StatusServiceUnavailable, err.Error())
 	default:
 		writeError(w, http.StatusInternalServerError, "something went wrong")
 	}
