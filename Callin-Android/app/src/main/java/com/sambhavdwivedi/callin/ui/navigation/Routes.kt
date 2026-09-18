@@ -4,4 +4,6 @@ object Routes {
     const val Login = "login"
     const val CompleteProfile = "complete_profile"
     const val Home = "home"
+    const val Terms = "terms"
+    const val Privacy = "privacy"
 }

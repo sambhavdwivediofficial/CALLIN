@@ -20,7 +20,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -35,8 +34,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.LinkAnnotation
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextLinkStyles
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withLink
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.credentials.CredentialManager
@@ -45,6 +49,7 @@ import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.sambhavdwivedi.callin.core.di.AppContainer
+import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import kotlinx.coroutines.launch
 
 // From Google Cloud Console → APIs & Services → Credentials → the
@@ -60,7 +65,9 @@ private val Beam = Color(0xFF2E90FF)
 @Composable
 fun LoginScreen(
     container: AppContainer,
-    onSignedIn: (needsProfile: Boolean) -> Unit
+    onSignedIn: (needsProfile: Boolean) -> Unit,
+    onOpenTerms: () -> Unit,
+    onOpenPrivacy: () -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -170,18 +177,16 @@ fun LoginScreen(
                 shape = RoundedCornerShape(28.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color.White,
-                    contentColor = Color(0xFF1F1F1F)
+                    contentColor = Color(0xFF1F1F1F),
+                    disabledContainerColor = Color.White,
+                    disabledContentColor = Color(0xFF1F1F1F)
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
             ) {
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(22.dp),
-                        strokeWidth = 2.dp,
-                        color = Color(0xFF1F1F1F)
-                    )
+                    PulseBarsLoader(size = 28.dp, barColor = Color.Black)
                 } else {
                     Text(text = "Continue with Google", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
@@ -189,8 +194,30 @@ fun LoginScreen(
 
             Spacer(Modifier.height(20.dp))
 
+            val legalText = buildAnnotatedString {
+                append("By continuing you agree to CALLIN's ")
+                withLink(
+                    LinkAnnotation.Clickable(
+                        tag = "terms",
+                        styles = TextLinkStyles(style = SpanStyle(color = Color.White, fontWeight = FontWeight.Bold))
+                    ) { onOpenTerms() }
+                ) {
+                    append("Terms")
+                }
+                append(" & ")
+                withLink(
+                    LinkAnnotation.Clickable(
+                        tag = "privacy",
+                        styles = TextLinkStyles(style = SpanStyle(color = Color.White, fontWeight = FontWeight.Bold))
+                    ) { onOpenPrivacy() }
+                ) {
+                    append("Privacy Policy")
+                }
+                append(".")
+            }
+
             Text(
-                text = "By continuing you agree to CALLIN's Terms & Privacy Policy.",
+                text = legalText,
                 color = Color(0xFF6E7F99),
                 fontSize = 11.sp,
                 textAlign = TextAlign.Center,

@@ -21,6 +21,8 @@ import com.sambhavdwivedi.callin.CallinApplication
 import com.sambhavdwivedi.callin.WelcomeScreen
 import com.sambhavdwivedi.callin.ui.auth.CompleteProfileScreen
 import com.sambhavdwivedi.callin.ui.auth.LoginScreen
+import com.sambhavdwivedi.callin.ui.legal.PrivacyScreen
+import com.sambhavdwivedi.callin.ui.legal.TermsScreen
 
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
@@ -85,7 +87,9 @@ fun CallinNavHost() {
                     navController.navigate(dest) {
                         popUpTo(Routes.Login) { inclusive = true }
                     }
-                }
+                },
+                onOpenTerms = { navController.navigate(Routes.Terms) },
+                onOpenPrivacy = { navController.navigate(Routes.Privacy) }
             )
         }
         composable(Routes.CompleteProfile) {
@@ -100,6 +104,12 @@ fun CallinNavHost() {
         }
         composable(Routes.Home) {
             WelcomeScreen()
+        }
+        composable(Routes.Terms) {
+            TermsScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.Privacy) {
+            PrivacyScreen(onBack = { navController.popBackStack() })
         }
     }
 }

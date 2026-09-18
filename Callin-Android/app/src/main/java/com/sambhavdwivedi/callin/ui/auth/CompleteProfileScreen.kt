@@ -17,7 +17,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
@@ -36,6 +35,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sambhavdwivedi.callin.core.di.AppContainer
+import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import kotlinx.coroutines.launch
 
 private val Ink0 = Color(0xFF000000)
@@ -198,13 +198,18 @@ fun CompleteProfileScreen(
                 },
                 enabled = isValid && !isSubmitting,
                 shape = RoundedCornerShape(28.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Beam, contentColor = Color.White),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Beam,
+                    contentColor = Color.White,
+                    disabledContainerColor = Beam,
+                    disabledContentColor = Color.White
+                ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(54.dp)
             ) {
                 if (isSubmitting) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp, color = Color.White)
+                    PulseBarsLoader(size = 26.dp, barColor = Color.White)
                 } else {
                     Text(text = "Continue", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
                 }
