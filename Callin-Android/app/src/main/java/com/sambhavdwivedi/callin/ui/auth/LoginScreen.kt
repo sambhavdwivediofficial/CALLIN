@@ -50,8 +50,7 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import kotlinx.coroutines.launch
-import android.util.Log
-import androidx.credentials.exceptions.GetCredentialCustomException
+import androidx.compose.ui.text.withStyle
 
 // From Google Cloud Console → APIs & Services → Credentials → the
 // OAuth client of type "Web application" (NOT the Android one). The
@@ -112,15 +111,15 @@ fun LoginScreen(
             Text(
                 text = "CALLIN",
                 color = Color.White,
-                fontWeight = FontWeight.Light,
-                fontSize = 34.sp,
-                letterSpacing = 6.sp
+                fontWeight = FontWeight.Medium,
+                fontSize = 44.sp,
+                letterSpacing = 5.sp
             )
 
             Spacer(Modifier.height(12.dp))
 
             Text(
-                text = "Crystal-clear calls over the internet.\nNo minutes, no carrier — just Wi-Fi or data.",
+                text = "Seamless voice communication powered by VoIP.\nConnect through VoIP using Wi Fi or mobile data.",
                 color = Color(0xFFAFC3DE),
                 fontSize = 15.sp,
                 textAlign = TextAlign.Center,
@@ -130,9 +129,9 @@ fun LoginScreen(
             Spacer(Modifier.height(40.dp))
 
             listOf(
-                "Crystal-clear voice, powered by WebRTC",
-                "Rings like a real call — even in the background",
-                "Private and encrypted, end to end"
+                "Reliable voice communication through VoIP",
+                "Secure voice communication with E2E encryption",
+                "Stay reachable with reliable background call support"
             ).forEach { line ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -187,9 +186,54 @@ fun LoginScreen(
                     .height(54.dp)
             ) {
                 if (isLoading) {
-                    PulseBarsLoader(size = 28.dp, barColor = Color.Black)
+                    PulseBarsLoader(size = 30.dp, barColor = Color.Black.copy(alpha = 0.6f))
+//                } else {
+//                    Text(text = "Continue with Google", fontWeight = FontWeight.Bold, fontSize = 19.sp)
+//                }
                 } else {
-                    Text(text = "Continue with Google", fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(
+                        text = buildAnnotatedString {
+                            append("Continue with ")
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFF4285F4))
+                            ) {
+                                append("G")
+                            }
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFFEA4335))
+                            ) {
+                                append("o")
+                            }
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFFFBBC05))
+                            ) {
+                                append("o")
+                            }
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFF4285F4))
+                            ) {
+                                append("g")
+                            }
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFF34A853))
+                            ) {
+                                append("l")
+                            }
+
+                            withStyle(
+                                SpanStyle(color = Color(0xFFEA4335))
+                            ) {
+                                append("e")
+                            }
+                        },
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 19.sp
+                    )
                 }
             }
 
