@@ -60,6 +60,7 @@ dependencies {
     // Local storage & navigation
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
+    implementation("androidx.compose.material:material-icons-core")
 
     testImplementation(libs.junit)
     androidTestImplementation(platform(libs.androidx.compose.bom))
