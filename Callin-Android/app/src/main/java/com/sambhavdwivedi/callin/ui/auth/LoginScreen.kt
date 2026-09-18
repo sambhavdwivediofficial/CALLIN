@@ -2,7 +2,6 @@ package com.sambhavdwivedi.callin.ui.auth
 
 import android.app.Activity
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -51,11 +50,13 @@ import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import kotlinx.coroutines.launch
+import android.util.Log
+import androidx.credentials.exceptions.GetCredentialCustomException
 
 // From Google Cloud Console → APIs & Services → Credentials → the
 // OAuth client of type "Web application" (NOT the Android one). The
 // backend's GOOGLE_WEB_CLIENT_ID must be this exact same value.
-private const val WEB_CLIENT_ID = "925911711375-7jrmmuilsijjinig8ktml2cva0uejqm6.apps.googleusercontent.com"
+private const val WEB_CLIENT_ID = "925911711375-61o0ufniff1cpk6ebp4rc89b5dkoe74j.apps.googleusercontent.com"
 
 private val Ink0 = Color(0xFF000000)
 private val Ink1 = Color(0xFF081324)
