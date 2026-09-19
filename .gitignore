@@ -6,7 +6,7 @@ Thumbs.db
 .vscode/
 *.iml
 txt
-/Callin-Android/app/src/main/
+# /Callin-Android/app/src/main/
 
 # Go
 Callin-Go/bin/
