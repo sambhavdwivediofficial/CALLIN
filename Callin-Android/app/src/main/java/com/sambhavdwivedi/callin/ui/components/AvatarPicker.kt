@@ -57,25 +57,47 @@ fun AvatarPicker(
     val context = LocalContext.current
     var sizeError by remember { mutableStateOf<String?>(null) }
 
+    // The locally selected image is shown immediately.
+    // This prevents an old cached server image from remaining visible
+    // after the user selects a new avatar.
+    var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+
     val pickMedia = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
         if (uri != null) {
-            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            val cursor = context.contentResolver.query(
+                uri,
+                null,
+                null,
+                null,
+                null
+            )
+
             cursor?.use {
                 if (it.moveToFirst()) {
                     val sizeIndex = it.getColumnIndex(OpenableColumns.SIZE)
+
                     if (sizeIndex != -1) {
                         val sizeBytes = it.getLong(sizeIndex)
+
                         if (sizeBytes > 10 * 1024 * 1024) {
-                            sizeError = "Avatar image size must not exceed 10 MB."
+                            sizeError =
+                                "Avatar image size must not exceed 10 MB."
                             return@rememberLauncherForActivityResult
                         }
                     }
                 }
             }
+
             sizeError = null
-            val mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+
+            // Immediately display the newly selected image locally.
+            selectedImageUri = uri
+
+            val mimeType =
+                context.contentResolver.getType(uri) ?: "image/jpeg"
+
             onImagePicked(uri, mimeType)
         }
     }
@@ -84,7 +106,10 @@ fun AvatarPicker(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(modifier = Modifier.size(116.dp)) {
+        Box(
+            modifier = Modifier.size(116.dp)
+        ) {
+
             Box(
                 modifier = Modifier
                     .size(110.dp)
@@ -92,36 +117,54 @@ fun AvatarPicker(
                     .offset(y = 6.dp)
                     .clip(CircleShape)
                     .background(Color(0xFF03060E))
-                    .border(1.dp, Color(0xFFAFC3DE), CircleShape),
+                    .border(
+                        1.dp,
+                        Color(0xFFAFC3DE),
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 when {
-                    isUploading -> PulseBarsLoader(size = 28.dp, barColor = Color.White.copy(alpha = 0.85f))
-
-                    !avatarUrl.isNullOrBlank() -> AsyncImage(
-                        model = avatarUrl,
-                        contentDescription = "Profile photo",
-                        modifier = Modifier
-                            .size(110.dp)
-                            .clip(CircleShape),
-                        contentScale = ContentScale.Crop
-                    )
-
-                    initials.isNotEmpty() -> Crossfade(targetState = initials, label = "avatar_initials") { text ->
-                        Text(
-                            text = text,
-                            color = Color(0xFFF5F9FF),
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 30.sp
+                    isUploading -> {
+                        PulseBarsLoader(
+                            size = 28.dp,
+                            barColor = Color.White.copy(alpha = 0.85f)
                         )
                     }
 
-                    else -> Icon(
-                        imageVector = Icons.Filled.Person,
-                        contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.95f),
-                        modifier = Modifier.size(48.dp)
-                    )
+                    selectedImageUri != null || !avatarUrl.isNullOrBlank() -> {
+                        AsyncImage(
+                            model = selectedImageUri ?: avatarUrl,
+                            contentDescription = "Profile photo",
+                            modifier = Modifier
+                                .size(110.dp)
+                                .clip(CircleShape),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+
+                    initials.isNotEmpty() -> {
+                        Crossfade(
+                            targetState = initials,
+                            label = "avatar_initials"
+                        ) { text ->
+                            Text(
+                                text = text,
+                                color = Color(0xFFF5F9FF),
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 30.sp
+                            )
+                        }
+                    }
+
+                    else -> {
+                        Icon(
+                            imageVector = Icons.Filled.Person,
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = 0.95f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
             }
 
@@ -131,10 +174,16 @@ fun AvatarPicker(
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
                     .background(Color(0xFF0A1624))
-                    .border(1.dp, Color(0xFFAFC3DE), CircleShape)
+                    .border(
+                        1.dp,
+                        Color(0xFFAFC3DE),
+                        CircleShape
+                    )
                     .clickable {
                         pickMedia.launch(
-                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            PickVisualMediaRequest(
+                                ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
                         )
                     },
                 contentAlignment = Alignment.Center
@@ -149,7 +198,10 @@ fun AvatarPicker(
         }
 
         sizeError?.let {
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(
+                modifier = Modifier.height(6.dp)
+            )
+
             Text(
                 text = it,
                 color = Color(0xFFFF6B6B),
