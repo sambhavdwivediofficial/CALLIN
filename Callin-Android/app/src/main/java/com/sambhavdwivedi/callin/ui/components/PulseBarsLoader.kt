@@ -30,7 +30,7 @@ import kotlin.math.sin
 fun PulseBarsLoader(
     modifier: Modifier = Modifier,
     size: Dp = 28.dp,
-    barColor: Color = Color.Black
+    barColor: Color = Color.Black,
 ) {
     val barCount = 12
     val infiniteTransition = rememberInfiniteTransition(label = "pulse_bars")
@@ -52,7 +52,7 @@ fun PulseBarsLoader(
         for (i in 0 until barCount) {
             val angleDeg = i * 30f
             val phase = i.toFloat() / barCount
-            val t = ((progress - phase) % 1f + 1f) % 1f
+            val t = (((progress - phase) % 1f) + 1f) % 1f
             val alpha = (1f - t).coerceIn(0.22f, 1f)
 
             val angleRad = Math.toRadians(angleDeg.toDouble())

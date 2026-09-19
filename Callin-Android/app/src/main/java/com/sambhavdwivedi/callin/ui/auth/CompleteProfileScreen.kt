@@ -26,38 +26,50 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sambhavdwivedi.callin.core.di.AppContainer
+import com.sambhavdwivedi.callin.ui.components.AvatarPicker
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // ─────────────────────────────────────────────────────────────
-// Dark / Blue visual palette
+// Palette: near-black / grey, blue reserved for focus + button
 // ─────────────────────────────────────────────────────────────
 
-private val Ink0 = Color(0xFF01050B)
-private val Ink1 = Color(0xFF030A14)
-private val Ink2 = Color(0xFF071323)
+private val Ink0 = Color(0xFF000000)
+private val Ink1 = Color(0xFF0A0A0A)
+private val Ink2 = Color(0xFF141414)
 
-private val Beam = Color(0xFF287FD8)
 private val ButtonBlue = Color(0xFF2478D4)
+private val FocusBlue = Color(0xFF338FEA)
 
-private val FieldBg = Color(0xFF0A1628)
+private val FieldBg = Color(0xFF171717)
+private val FieldBorder = Color(0xFF2C2C2C)
 
-private val FieldBorder = Color(0xFF234A72)
-private val FieldBorderFocused = Color(0xFF338FEA)
-
-private val SecondaryText = Color(0xFF9EB2CC)
-private val MutedText = Color(0xFF71849E)
-private val DisabledText = Color(0xFF71839B)
+private val SecondaryText = Color(0xFFA6A6A6)
+private val MutedText = Color(0xFF767676)
+private val DisabledText = Color(0xFF6B6B6B)
 
 private val ErrorRed = Color(0xFFFF6B6B)
+private val SuccessGreen = Color(0xFF4CD97B)
+
+private enum class UsernameStatus { Idle, Checking, Available, Taken }
+
+private fun extensionForMime(mimeType: String): String = when (mimeType) {
+    "image/png" -> "png"
+    "image/webp" -> "webp"
+    "image/gif" -> "gif"
+    else -> "jpg"
+}
 
 /**
  * Shown exactly once per account, right after a first-time Google
@@ -68,18 +80,24 @@ private val ErrorRed = Color(0xFFFF6B6B)
 @Composable
 fun CompleteProfileScreen(
     container: AppContainer,
-    onCompleted: () -> Unit
+    onCompleted: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     var email by remember { mutableStateOf("") }
-    var isLoadingEmail by remember { mutableStateOf(true) }
+    var isLoadingEmail by remember { mutableStateOf(value = true) }
 
     var firstName by remember { mutableStateOf("") }
     var lastName by remember { mutableStateOf("") }
     var username by remember { mutableStateOf("") }
 
-    var isSubmitting by remember { mutableStateOf(false) }
+    var avatarUrl by remember { mutableStateOf<String?>(null) }
+    var isUploadingAvatar by remember { mutableStateOf(value = false) }
+
+    var usernameStatus by remember { mutableStateOf(UsernameStatus.Idle) }
+
+    var isSubmitting by remember { mutableStateOf(value = false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) {
@@ -93,6 +111,28 @@ fun CompleteProfileScreen(
             }
     }
 
+    // Debounced live username availability check.
+    LaunchedEffect(username) {
+        if (username.length < 3) {
+            usernameStatus = UsernameStatus.Idle
+            return@LaunchedEffect
+        }
+        usernameStatus = UsernameStatus.Checking
+        delay(500)
+        container.userRepository.checkUsername(username)
+            .onSuccess { available ->
+                usernameStatus = if (available) UsernameStatus.Available else UsernameStatus.Taken
+            }
+            .onFailure { usernameStatus = UsernameStatus.Idle }
+    }
+
+    val initials = buildString {
+        if (firstName.isNotBlank()) {
+            append(firstName.first().uppercaseChar())
+            if (lastName.isNotBlank()) append(lastName.first().uppercaseChar())
+        }
+    }
+
     // ─────────────────────────────────────────────────────────
     // Field colors
     // ─────────────────────────────────────────────────────────
@@ -102,7 +142,7 @@ fun CompleteProfileScreen(
         unfocusedContainerColor = FieldBg,
         disabledContainerColor = FieldBg,
 
-        focusedBorderColor = FieldBorderFocused,
+        focusedBorderColor = FocusBlue,
         unfocusedBorderColor = FieldBorder,
         disabledBorderColor = FieldBorder,
 
@@ -110,9 +150,9 @@ fun CompleteProfileScreen(
         unfocusedTextColor = Color.White,
         disabledTextColor = DisabledText,
 
-        cursorColor = Beam,
+        cursorColor = FocusBlue,
 
-        focusedLabelColor = FieldBorderFocused,
+        focusedLabelColor = FocusBlue,
         unfocusedLabelColor = MutedText,
 
         focusedPlaceholderColor = MutedText,
@@ -124,11 +164,7 @@ fun CompleteProfileScreen(
             .fillMaxSize()
             .background(
                 Brush.radialGradient(
-                    colors = listOf(
-                        Ink2,
-                        Ink1,
-                        Ink0
-                    ),
+                    colors = listOf(Ink2, Ink1, Ink0),
                     radius = 1250f
                 )
             )
@@ -141,11 +177,7 @@ fun CompleteProfileScreen(
                 .navigationBarsPadding()
         ) {
 
-            Spacer(Modifier.height(32.dp))
-
-            // ─────────────────────────────────────────────────
-            // Header
-            // ─────────────────────────────────────────────────
+            Spacer(Modifier.height(28.dp))
 
             Text(
                 text = "Complete your profile",
@@ -162,7 +194,39 @@ fun CompleteProfileScreen(
                 fontSize = 14.sp
             )
 
-            Spacer(Modifier.height(32.dp))
+            Spacer(Modifier.height(24.dp))
+
+            // ─────────────────────────────────────────────────
+            // Avatar
+            // ─────────────────────────────────────────────────
+
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                AvatarPicker(
+                    initials = initials,
+                    avatarUrl = avatarUrl,
+                    isUploading = isUploadingAvatar,
+                    onImagePicked = { uri, mimeType ->
+                        scope.launch {
+                            isUploadingAvatar = true
+                            try {
+                                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                                    val bytes = inputStream.readBytes()
+                                    container.userRepository
+                                        .uploadAvatar(bytes, mimeType, "avatar.${extensionForMime(mimeType)}")
+                                        .onSuccess { url -> avatarUrl = url }
+                                        .onFailure { e ->
+                                            errorMessage = e.message ?: "Could not upload photo. Try again."
+                                        }
+                                }
+                            } finally {
+                                isUploadingAvatar = false
+                            }
+                        }
+                    }
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
 
             // ─────────────────────────────────────────────────
             // Email
@@ -197,12 +261,8 @@ fun CompleteProfileScreen(
 
                 OutlinedTextField(
                     value = firstName,
-                    onValueChange = {
-                        firstName = it
-                    },
-                    label = {
-                        Text("First name")
-                    },
+                    onValueChange = { input -> firstName = input.take(10) },
+                    label = { RequiredLabel("First name") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = fieldColors,
@@ -214,12 +274,8 @@ fun CompleteProfileScreen(
 
                 OutlinedTextField(
                     value = lastName,
-                    onValueChange = {
-                        lastName = it
-                    },
-                    label = {
-                        Text("Last name")
-                    },
+                    onValueChange = { input -> lastName = input.take(10) },
+                    label = { RequiredLabel("Last name") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp),
                     colors = fieldColors,
@@ -240,14 +296,11 @@ fun CompleteProfileScreen(
                 value = username,
                 onValueChange = { input ->
                     username = input
-                        .filter {
-                            it.isLetterOrDigit() || it == '_'
-                        }
-                        .take(32)
+                        .lowercase()
+                        .filter { it.isLetter() || it.isDigit() || (it == '_') || (it == '-') }
+                        .take(18)
                 },
-                label = {
-                    Text("Username")
-                },
+                label = { RequiredLabel("Username") },
                 placeholder = {
                     Text(
                         text = "this can never be changed later",
@@ -260,6 +313,22 @@ fun CompleteProfileScreen(
                 colors = fieldColors,
                 modifier = Modifier.fillMaxWidth()
             )
+
+            when (usernameStatus) {
+                UsernameStatus.Available -> Text(
+                    text = "Available",
+                    color = SuccessGreen,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                )
+                UsernameStatus.Taken -> Text(
+                    text = "Already taken",
+                    color = ErrorRed,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp, start = 4.dp)
+                )
+                else -> {}
+            }
 
             // ─────────────────────────────────────────────────
             // Error
@@ -282,9 +351,10 @@ fun CompleteProfileScreen(
             // ─────────────────────────────────────────────────
 
             val isValid =
-                firstName.isNotBlank() &&
-                        lastName.isNotBlank() &&
-                        username.length >= 3
+                (firstName.length in 2..10) &&
+                        (lastName.length in 2..10) &&
+                        (username.length in 3..18) &&
+                        (usernameStatus == UsernameStatus.Available)
 
             // ─────────────────────────────────────────────────
             // Continue button
@@ -319,25 +389,26 @@ fun CompleteProfileScreen(
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ButtonBlue,
                     contentColor = Color.White,
-
-                    // Keep the button visually present even while
-                    // validation/loading disables it.
-                    disabledContainerColor = ButtonBlue,
-                    disabledContentColor = Color.White
+                    disabledContainerColor = ButtonBlue.copy(alpha = 0.4f),
+                    disabledContentColor = Color.White.copy(alpha = 0.7f)
+                ),
+                elevation = ButtonDefaults.buttonElevation(
+                    defaultElevation = 0.dp,
+                    pressedElevation = 0.dp,
+                    disabledElevation = 0.dp,
+                    hoveredElevation = 0.dp,
+                    focusedElevation = 0.dp
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
                 if (isSubmitting) {
-
                     PulseBarsLoader(
                         size = 26.dp,
                         barColor = Color.White
                     )
-
                 } else {
-
                     Text(
                         text = "Continue",
                         fontWeight = FontWeight.Bold,
@@ -348,5 +419,19 @@ fun CompleteProfileScreen(
 
             Spacer(Modifier.height(28.dp))
         }
+    }
+}
+
+/** A field label with a small, thin white asterisk marking it required. */
+@Composable
+private fun RequiredLabel(text: String) {
+    Row {
+        Text(text)
+        Text(
+            text = " *",
+            color = Color.White,
+            fontWeight = FontWeight.Light,
+            fontSize = 12.sp,
+        )
     }
 }
