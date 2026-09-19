@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import androidx.compose.foundation.layout.offset
 
 /**
  * The circular profile-photo picker used on the complete-profile
@@ -83,14 +84,15 @@ fun AvatarPicker(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(modifier = Modifier.size(108.dp)) {
+        Box(modifier = Modifier.size(116.dp)) {
             Box(
                 modifier = Modifier
-                    .size(96.dp)
+                    .size(110.dp)
                     .align(Alignment.TopStart)
+                    .offset(y = 6.dp)
                     .clip(CircleShape)
-                    .background(Color.Black)
-                    .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape),
+                    .background(Color(0xFF03060E))
+                    .border(1.dp, Color(0xFFAFC3DE), CircleShape),
                 contentAlignment = Alignment.Center
             ) {
                 when {
@@ -100,7 +102,7 @@ fun AvatarPicker(
                         model = avatarUrl,
                         contentDescription = "Profile photo",
                         modifier = Modifier
-                            .size(96.dp)
+                            .size(110.dp)
                             .clip(CircleShape),
                         contentScale = ContentScale.Crop
                     )
@@ -108,7 +110,7 @@ fun AvatarPicker(
                     initials.isNotEmpty() -> Crossfade(targetState = initials, label = "avatar_initials") { text ->
                         Text(
                             text = text,
-                            color = Color.White,
+                            color = Color(0xFFF5F9FF),
                             fontWeight = FontWeight.SemiBold,
                             fontSize = 30.sp
                         )
@@ -117,8 +119,8 @@ fun AvatarPicker(
                     else -> Icon(
                         imageVector = Icons.Filled.Person,
                         contentDescription = null,
-                        tint = Color.White.copy(alpha = 0.55f),
-                        modifier = Modifier.size(40.dp)
+                        tint = Color.White.copy(alpha = 0.95f),
+                        modifier = Modifier.size(48.dp)
                     )
                 }
             }
@@ -128,8 +130,8 @@ fun AvatarPicker(
                     .size(28.dp)
                     .align(Alignment.BottomEnd)
                     .clip(CircleShape)
-                    .background(Color(0xFF242424))
-                    .border(1.dp, Color.White.copy(alpha = 0.35f), CircleShape)
+                    .background(Color(0xFF0A1624))
+                    .border(1.dp, Color(0xFFAFC3DE), CircleShape)
                     .clickable {
                         pickMedia.launch(
                             PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)

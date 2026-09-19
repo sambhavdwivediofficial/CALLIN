@@ -40,27 +40,35 @@ import com.sambhavdwivedi.callin.ui.components.AvatarPicker
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 
 // ─────────────────────────────────────────────────────────────
-// Palette: near-black / grey, blue reserved for focus + button
+// Dark / Blue visual palette
 // ─────────────────────────────────────────────────────────────
 
-private val Ink0 = Color(0xFF000000)
-private val Ink1 = Color(0xFF0A0A0A)
-private val Ink2 = Color(0xFF141414)
+// Page background = #03060E
+private val Ink0 = Color(0xFF03060E)
+private val Ink1 = Color(0xFF03060E)
+private val Ink2 = Color(0xFF03060E)
 
+// Continue button — intentionally unchanged
 private val ButtonBlue = Color(0xFF2478D4)
-private val FocusBlue = Color(0xFF338FEA)
 
-private val FieldBg = Color(0xFF171717)
-private val FieldBorder = Color(0xFF2C2C2C)
+// Other UI colors matched to the Legal page palette
+private val FocusBlue = Color(0xFFAFC3DE)
 
-private val SecondaryText = Color(0xFFA6A6A6)
-private val MutedText = Color(0xFF767676)
-private val DisabledText = Color(0xFF6B6B6B)
+private val FieldBg = Color(0xFF03060E)
+private val FieldBorder = Color(0xFFAFC3DE)
 
-private val ErrorRed = Color(0xFFFF6B6B)
-private val SuccessGreen = Color(0xFF4CD97B)
+private val SecondaryText = Color(0xFFAFC3DE)
+private val MutedText = Color(0xFFAFC3DE)
+private val DisabledText = Color(0xFFAFC3DE)
+
+// Kept as named constants so the internal code remains unchanged
+private val ErrorRed = Color(0xFFAFC3DE)
+private val SuccessGreen = Color(0xFFAFC3DE)
 
 private enum class UsernameStatus { Idle, Checking, Available, Taken }
 
@@ -84,6 +92,8 @@ fun CompleteProfileScreen(
 ) {
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
+
+    val focusManager = LocalFocusManager.current
 
     var email by remember { mutableStateOf("") }
     var isLoadingEmail by remember { mutableStateOf(value = true) }
@@ -121,7 +131,9 @@ fun CompleteProfileScreen(
         delay(500)
         container.userRepository.checkUsername(username)
             .onSuccess { available ->
-                usernameStatus = if (available) UsernameStatus.Available else UsernameStatus.Taken
+                usernameStatus =
+                    if (available) UsernameStatus.Available
+                    else UsernameStatus.Taken
             }
             .onFailure { usernameStatus = UsernameStatus.Idle }
     }
@@ -149,6 +161,7 @@ fun CompleteProfileScreen(
         focusedTextColor = Color.White,
         unfocusedTextColor = Color.White,
         disabledTextColor = DisabledText,
+        disabledLabelColor = FocusBlue,
 
         cursorColor = FocusBlue,
 
@@ -169,6 +182,16 @@ fun CompleteProfileScreen(
                 )
             )
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .pointerInput(Unit) {
+                    detectTapGestures {
+                        focusManager.clearFocus()
+                    }
+                }
+        )
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -200,7 +223,10 @@ fun CompleteProfileScreen(
             // Avatar
             // ─────────────────────────────────────────────────
 
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 AvatarPicker(
                     initials = initials,
                     avatarUrl = avatarUrl,
@@ -212,10 +238,16 @@ fun CompleteProfileScreen(
                                 context.contentResolver.openInputStream(uri)?.use { inputStream ->
                                     val bytes = inputStream.readBytes()
                                     container.userRepository
-                                        .uploadAvatar(bytes, mimeType, "avatar.${extensionForMime(mimeType)}")
+                                        .uploadAvatar(
+                                            bytes,
+                                            mimeType,
+                                            "avatar.${extensionForMime(mimeType)}"
+                                        )
                                         .onSuccess { url -> avatarUrl = url }
                                         .onFailure { e ->
-                                            errorMessage = e.message ?: "Could not upload photo. Try again."
+                                            errorMessage =
+                                                e.message
+                                                    ?: "Could not upload photo. Try again."
                                         }
                                 }
                             } finally {
@@ -237,11 +269,7 @@ fun CompleteProfileScreen(
                 onValueChange = {},
                 enabled = false,
                 readOnly = true,
-                label = {
-                    Text(
-                        text = if (isLoadingEmail) "Loading…" else "Email"
-                    )
-                },
+                label = { RequiredLabel(if (isLoadingEmail) "Email" else "Email") },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 shape = RoundedCornerShape(14.dp),
@@ -303,8 +331,8 @@ fun CompleteProfileScreen(
                 label = { RequiredLabel("Username") },
                 placeholder = {
                     Text(
-                        text = "this can never be changed later",
-                        color = Color(0xFF50647F),
+                        text = "This can never be changed later",
+                        color = MutedText,
                         fontSize = 12.sp
                     )
                 },
@@ -321,12 +349,14 @@ fun CompleteProfileScreen(
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 4.dp, start = 4.dp)
                 )
+
                 UsernameStatus.Taken -> Text(
                     text = "Already taken",
                     color = ErrorRed,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(top = 4.dp, start = 4.dp)
                 )
+
                 else -> {}
             }
 

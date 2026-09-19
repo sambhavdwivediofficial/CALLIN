@@ -3,11 +3,12 @@ package com.sambhavdwivedi.callin.ui.theme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.graphics.Color
 
 private val CallinColorScheme = darkColorScheme(
-    primary = Purple80,
-    secondary = PurpleGrey80,
-    tertiary = Pink80
+    primary = Color(0xFFAFC3DE),
+    secondary = Color(0xFFAFC3DE),
+    tertiary = Color(0xFFAFC3DE)
 )
 
 /**
