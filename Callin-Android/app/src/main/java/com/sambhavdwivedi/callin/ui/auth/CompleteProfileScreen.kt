@@ -403,7 +403,6 @@ fun CompleteProfileScreen(
                                 lastName.trim()
                             )
                             .onSuccess {
-                                isSubmitting = false
                                 onCompleted()
                             }
                             .onFailure { e ->
