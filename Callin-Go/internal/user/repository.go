@@ -149,6 +149,25 @@ func (r *Repository) CompleteProfile(ctx context.Context, userID, username, firs
 	return &updated, nil
 }
 
+// UsernameExists reports whether a username is already taken.
+func (r *Repository) UsernameExists(ctx context.Context, username string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)`, username).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("user repository: username exists: %w", err)
+	}
+	return exists, nil
+}
+
+// UpdateAvatarURL saves the URL of a user's uploaded profile photo.
+func (r *Repository) UpdateAvatarURL(ctx context.Context, userID, url string) error {
+	_, err := r.pool.Exec(ctx, `UPDATE users SET avatar_url = $1, updated_at = now() WHERE id = $2`, url, userID)
+	if err != nil {
+		return fmt.Errorf("user repository: update avatar: %w", err)
+	}
+	return nil
+}
+
 // List returns every other user who has finished onboarding, for
 // the contacts/search screen.
 func (r *Repository) List(ctx context.Context, excludeUserID string, limit int) ([]Public, error) {

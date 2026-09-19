@@ -20,6 +20,7 @@ import (
 	"callin-go/internal/middleware"
 	"callin-go/internal/push"
 	"callin-go/internal/signaling"
+	"callin-go/internal/storage"
 	"callin-go/internal/user"
 	"callin-go/pkg/logger"
 )
@@ -65,11 +66,18 @@ func main() {
 		os.Exit(1)
 	}
 
+	var avatarStorage *storage.SupabaseStorage
+	if cfg.SupabaseURL == "" || cfg.SupabaseServiceKey == "" {
+		log.Warn("SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY not set — avatar uploads are disabled")
+	} else {
+		avatarStorage = storage.NewSupabaseStorage(cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseBucket)
+	}
+
 	hub := signaling.NewHub(log)
 	callRegistry := call.NewRegistry()
 	router := signaling.NewRouter(hub, callRegistry, pool, fcmClient, log)
 
-	userHandler := user.NewHandler(userRepo)
+	userHandler := user.NewHandler(userRepo, avatarStorage)
 	authHandler := auth.NewHandler(authService)
 	callHandler := call.NewHandler(pool)
 
@@ -93,8 +101,10 @@ func main() {
 
 	mux.Handle("GET /api/v1/users/me", requireAuth(http.HandlerFunc(userHandler.Me)))
 	mux.Handle("GET /api/v1/users", requireAuth(http.HandlerFunc(userHandler.List)))
+	mux.Handle("GET /api/v1/users/check-username", requireAuth(http.HandlerFunc(userHandler.CheckUsername)))
 	mux.Handle("POST /api/v1/users/me/device", requireAuth(http.HandlerFunc(userHandler.RegisterDevice)))
 	mux.Handle("POST /api/v1/users/me/complete-profile", requireAuth(http.HandlerFunc(userHandler.CompleteProfile)))
+	mux.Handle("POST /api/v1/users/me/avatar", requireAuth(http.HandlerFunc(userHandler.UploadAvatar)))
 
 	mux.Handle("GET /api/v1/calls", requireAuth(http.HandlerFunc(callHandler.History)))
 

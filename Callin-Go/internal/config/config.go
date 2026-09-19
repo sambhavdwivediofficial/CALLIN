@@ -28,6 +28,10 @@ type Config struct {
 
 	GoogleWebClientID string
 
+	SupabaseURL        string
+	SupabaseServiceKey string
+	SupabaseBucket     string
+
 	AllowedOrigins []string
 
 	RateLimitRPS   float64
@@ -49,6 +53,10 @@ func Load() (*Config, error) {
 		FCMProjectID:          os.Getenv("FCM_PROJECT_ID"),
 		FCMServiceAccountFile: os.Getenv("FCM_SERVICE_ACCOUNT_FILE"),
 		GoogleWebClientID:     os.Getenv("GOOGLE_WEB_CLIENT_ID"),
+
+		SupabaseURL:        os.Getenv("SUPABASE_URL"),
+		SupabaseServiceKey: os.Getenv("SUPABASE_SERVICE_ROLE_KEY"),
+		SupabaseBucket:     getEnv("SUPABASE_AVATARS_BUCKET", "avatars"),
 
 		AllowedOrigins: splitAndTrim(getEnv("ALLOWED_ORIGINS", "*")),
 	}
