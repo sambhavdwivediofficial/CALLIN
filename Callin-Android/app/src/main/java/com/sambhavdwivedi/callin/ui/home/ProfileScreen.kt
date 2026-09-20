@@ -2,6 +2,7 @@ package com.sambhavdwivedi.callin.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -16,7 +17,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCode
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -31,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,6 +53,7 @@ fun ProfileScreen(
     onSignOut: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+
     var me by remember { mutableStateOf<MeDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isSigningOut by remember { mutableStateOf(false) }
@@ -55,6 +61,7 @@ fun ProfileScreen(
     LaunchedEffect(Unit) {
         container.userRepository.getMe()
             .onSuccess { me = it }
+
         isLoading = false
     }
 
@@ -65,38 +72,82 @@ fun ProfileScreen(
     ) {
         Spacer(Modifier.height(16.dp))
 
+        // Header
         Row(
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Icon(
-                imageVector = Icons.Filled.Person,
-                contentDescription = null,
-                tint = CallinColors.TextPrimary,
-                modifier = Modifier.size(24.dp)
-            )
+            // Profile title
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Person,
+                    contentDescription = null,
+                    tint = CallinColors.TextPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
 
-            Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(8.dp))
 
-            Text(
-                text = "Profile",
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp
-            )
+                Text(
+                    text = "Profile",
+                    color = CallinColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp
+                )
+            }
+
+            // Header action icons
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.QrCodeScanner,
+                    contentDescription = "Scan QR",
+                    tint = Color.White,
+                    modifier = Modifier.size(26.dp)
+                )
+
+                Spacer(Modifier.width(16.dp))
+
+                Icon(
+                    imageVector = Icons.Filled.QrCode,
+                    contentDescription = "QR Code",
+                    tint = Color.White,
+                    modifier = Modifier.size(26.dp)
+                )
+
+                Spacer(Modifier.width(16.dp))
+
+                Icon(
+                    imageVector = Icons.Filled.NotificationsNone,
+                    contentDescription = "Notifications",
+                    tint = Color.White,
+                    modifier = Modifier.size(26.dp)
+                )
+
+                Spacer(Modifier.width(16.dp))
+
+                CustomMenuIcon()
+            }
         }
 
         Spacer(Modifier.height(28.dp))
 
         if (isLoading) {
             Box(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
-                PulseBarsLoader(barColor = CallinColors.TextSecondary)
+                PulseBarsLoader(
+                    barColor = CallinColors.TextSecondary
+                )
             }
         } else {
             Box(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.Center
             ) {
                 Box(
@@ -104,7 +155,11 @@ fun ProfileScreen(
                         .size(96.dp)
                         .clip(CircleShape)
                         .background(CallinColors.Background)
-                        .border(1.dp, CallinColors.TextSecondary, CircleShape),
+                        .border(
+                            width = 1.dp,
+                            color = CallinColors.TextSecondary,
+                            shape = CircleShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (!me?.avatar_url.isNullOrBlank()) {
@@ -164,6 +219,7 @@ fun ProfileScreen(
         OutlinedButton(
             onClick = {
                 isSigningOut = true
+
                 scope.launch {
                     container.authRepository.logout()
                     isSigningOut = false
@@ -205,5 +261,44 @@ fun ProfileScreen(
         }
 
         Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun CustomMenuIcon() {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(3.5.dp),
+        horizontalAlignment = Alignment.Start,
+        modifier = Modifier.width(24.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(24.dp)
+                .height(2.dp)
+                .background(
+                    Color.White,
+                    RoundedCornerShape(50)
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .width(18.dp)
+                .height(2.dp)
+                .background(
+                    Color.White,
+                    RoundedCornerShape(50)
+                )
+        )
+
+        Box(
+            modifier = Modifier
+                .width(13.dp)
+                .height(2.dp)
+                .background(
+                    Color.White,
+                    RoundedCornerShape(50)
+                )
+        )
     }
 }
