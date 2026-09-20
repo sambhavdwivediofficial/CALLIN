@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -54,27 +54,46 @@ fun ContactsScreen(container: AppContainer) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
+        // .statusBarsPadding()
     ) {
-        Text(
-            text = "Contacts",
-            color = CallinColors.TextPrimary,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 24.sp,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.People,
+                contentDescription = null,
+                tint = CallinColors.TextPrimary
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = "Contacts",
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp
+            )
+        }
 
         when {
-            isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            isLoading -> Box(
+                Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
                 PulseBarsLoader(barColor = CallinColors.TextSecondary)
             }
 
             errorMessage != null -> EmptyState(errorMessage!!)
 
-            users.isEmpty() -> EmptyState("No other CALLIN users yet.\nInvite a friend to get started.")
+            users.isEmpty() -> EmptyState(
+                "No other CALLIN users yet.\nInvite a friend to get started."
+            )
 
             else -> LazyColumn {
-                items(users) { user -> ContactRow(user) }
+                items(users) { user ->
+                    ContactRow(user)
+                }
             }
         }
     }
@@ -100,7 +119,9 @@ private fun ContactRow(user: PublicUserDto) {
                 AsyncImage(
                     model = user.avatar_url,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp).clip(CircleShape),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
             } else {
@@ -121,6 +142,7 @@ private fun ContactRow(user: PublicUserDto) {
                 fontWeight = FontWeight.Medium,
                 fontSize = 16.sp
             )
+
             user.username?.let {
                 Text(
                     text = "@$it",
@@ -134,7 +156,12 @@ private fun ContactRow(user: PublicUserDto) {
 
 @Composable
 fun EmptyState(message: String) {
-    Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
         Text(
             text = message,
             color = CallinColors.TextSecondary,

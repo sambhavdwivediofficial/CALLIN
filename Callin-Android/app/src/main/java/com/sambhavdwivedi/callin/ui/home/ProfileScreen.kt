@@ -4,20 +4,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
@@ -62,26 +61,44 @@ fun ProfileScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .statusBarsPadding()
             .padding(horizontal = 24.dp)
     ) {
         Spacer(Modifier.height(16.dp))
 
-        Text(
-            text = "Profile",
-            color = CallinColors.TextPrimary,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 24.sp
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Person,
+                contentDescription = null,
+                tint = CallinColors.TextPrimary,
+                modifier = Modifier.size(24.dp)
+            )
+
+            Spacer(Modifier.width(8.dp))
+
+            Text(
+                text = "Profile",
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 24.sp
+            )
+        }
 
         Spacer(Modifier.height(28.dp))
 
         if (isLoading) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 PulseBarsLoader(barColor = CallinColors.TextSecondary)
             }
         } else {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Box(
+                Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
                 Box(
                     modifier = Modifier
                         .size(96.dp)
@@ -94,7 +111,9 @@ fun ProfileScreen(
                         AsyncImage(
                             model = me?.avatar_url,
                             contentDescription = null,
-                            modifier = Modifier.size(96.dp).clip(CircleShape),
+                            modifier = Modifier
+                                .size(96.dp)
+                                .clip(CircleShape),
                             contentScale = ContentScale.Crop
                         )
                     } else {
@@ -118,6 +137,7 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
+
             me?.username?.let {
                 Text(
                     text = "@$it",
@@ -152,18 +172,35 @@ fun ProfileScreen(
             },
             enabled = !isSigningOut,
             shape = RoundedCornerShape(28.dp),
-            border = androidx.compose.foundation.BorderStroke(1.dp, CallinColors.Danger.copy(alpha = 0.6f)),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = CallinColors.Danger),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                CallinColors.Danger.copy(alpha = 0.6f)
+            ),
+            colors = ButtonDefaults.outlinedButtonColors(
+                contentColor = CallinColors.Danger
+            ),
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp)
         ) {
             if (isSigningOut) {
-                PulseBarsLoader(size = 22.dp, barColor = CallinColors.Danger)
+                PulseBarsLoader(
+                    size = 22.dp,
+                    barColor = CallinColors.Danger
+                )
             } else {
-                Icon(imageVector = Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Logout,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+
                 Spacer(Modifier.width(8.dp))
-                Text(text = "Sign out", fontWeight = FontWeight.Medium)
+
+                Text(
+                    text = "Sign out",
+                    fontWeight = FontWeight.Medium
+                )
             }
         }
 

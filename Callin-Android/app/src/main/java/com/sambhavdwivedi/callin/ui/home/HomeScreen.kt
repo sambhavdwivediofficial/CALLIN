@@ -45,7 +45,7 @@ fun HomeScreen(
     Scaffold(
         containerColor = CallinColors.Background,
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF070B14)) {
+            NavigationBar(containerColor = CallinColors.Background) {
                 NavigationBarItem(
                     selected = selectedTab == HomeTab.Recents,
                     onClick = { selectedTab = HomeTab.Recents },
@@ -90,5 +90,6 @@ private fun homeNavItemColors() = NavigationBarItemDefaults.colors(
     selectedTextColor = CallinColors.TextPrimary,
     unselectedIconColor = CallinColors.TextSecondary,
     unselectedTextColor = CallinColors.TextSecondary,
-    indicatorColor = CallinColors.TextSecondary.copy(alpha = 0.16f)
+//    indicatorColor = CallinColors.TextSecondary.copy(alpha = 0.16f)
+    indicatorColor = Color(0xFF151D2A)
 )
