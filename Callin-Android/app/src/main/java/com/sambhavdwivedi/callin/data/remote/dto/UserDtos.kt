@@ -30,3 +30,16 @@ data class CheckUsernameResponse(
 data class AvatarResponse(
     val avatar_url: String
 )
+
+@Serializable
+data class PublicUserDto(
+    val id: String,
+    val username: String? = null,
+    val display_name: String? = null,
+    val avatar_url: String? = null
+)
+
+@Serializable
+data class UsersListResponse(
+    val users: List<PublicUserDto>
+)

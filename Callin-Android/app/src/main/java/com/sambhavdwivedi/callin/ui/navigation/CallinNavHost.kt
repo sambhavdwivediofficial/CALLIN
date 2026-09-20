@@ -1,5 +1,8 @@
 package com.sambhavdwivedi.callin.ui.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,17 +15,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sambhavdwivedi.callin.CallinApplication
-import com.sambhavdwivedi.callin.WelcomeScreen
 import com.sambhavdwivedi.callin.ui.auth.CompleteProfileScreen
 import com.sambhavdwivedi.callin.ui.auth.LoginScreen
+import com.sambhavdwivedi.callin.ui.home.HomeScreen
 import com.sambhavdwivedi.callin.ui.legal.PrivacyScreen
 import com.sambhavdwivedi.callin.ui.legal.TermsScreen
+import com.sambhavdwivedi.callin.ui.theme.CallinColors
 
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
@@ -32,6 +35,10 @@ private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
  * account hasn't finished onboarding, Home otherwise. This is the
  * single place that owns that decision — screens themselves don't
  * need to know how they got there.
+ *
+ * Every route change fades rather than cuts — this is a one-time
+ * NavHost-level setting, so every screen added to the app from here
+ * on gets the same smooth transition for free.
  */
 @Composable
 fun CallinNavHost() {
@@ -64,10 +71,10 @@ fun CallinNavHost() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color(0xFF000000)),
+                .background(CallinColors.Background),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = Color(0xFF2E90FF))
+            CircularProgressIndicator(color = CallinColors.TextSecondary)
         }
         return
     }
@@ -78,7 +85,14 @@ fun CallinNavHost() {
         else -> Routes.Login
     }
 
-    NavHost(navController = navController, startDestination = startDestination) {
+    NavHost(
+        navController = navController,
+        startDestination = startDestination,
+        enterTransition = { fadeIn(animationSpec = tween(220)) },
+        exitTransition = { fadeOut(animationSpec = tween(180)) },
+        popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+        popExitTransition = { fadeOut(animationSpec = tween(180)) }
+    ) {
         composable(Routes.Login) {
             LoginScreen(
                 container = container,
@@ -103,7 +117,14 @@ fun CallinNavHost() {
             )
         }
         composable(Routes.Home) {
-            WelcomeScreen()
+            HomeScreen(
+                container = container,
+                onSignOut = {
+                    navController.navigate(Routes.Login) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }
+            )
         }
         composable(Routes.Terms) {
             TermsScreen(onBack = { navController.popBackStack() })
