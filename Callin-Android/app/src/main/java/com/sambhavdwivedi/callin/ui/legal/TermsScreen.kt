@@ -1,29 +1,8 @@
-//package com.sambhavdwivedi.callin.ui.legal
-//
-//import androidx.compose.runtime.Composable
-//
-//@Composable
-//fun TermsScreen(onBack: () -> Unit) {
-//    LegalScaffold(title = "Terms of Service", onBack = onBack) {
-//        LegalSection("1. Using CALLIN", "CALLIN lets you make and receive voice calls with other CALLIN users over the internet. You must be at least 13 years old to create an account.")
-//        LegalSection("2. Your account", "You're responsible for the activity on your account and for keeping your sign-in credentials secure. Your username, once set, cannot be changed.")
-//        LegalSection("3. Acceptable use", "You agree not to use CALLIN to harass, abuse, or harm others, to send spam, or to attempt to disrupt the service for other users.")
-//        LegalSection("4. Calls and data", "Calls are transmitted directly between devices whenever possible, using WebRTC. CALLIN's servers coordinate call setup and, where needed, relay audio to help calls connect.")
-//        LegalSection("5. Availability", "CALLIN is provided \"as is\" while in active development. Features and availability may change without notice.")
-//        LegalSection("6. Changes to these terms", "We may update these terms as CALLIN evolves. Continued use of the app means you accept the current version.")
-//    }
-//}
 package com.sambhavdwivedi.callin.ui.legal
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.runtime.Composable
-
-// ─────────────────────────────────────────────────────────────
-// Terms of Service
-// Layout, colors, icons and the developer footer come from the
-// shared blocks in PrivacyScreen.kt (LegalDocument).
-// ─────────────────────────────────────────────────────────────
 
 @Composable
 fun TermsScreen(onBack: () -> Unit) {
@@ -225,7 +204,7 @@ private val termsSections = listOf(
         icon = Icons.Outlined.Copyright,
         title = "Ownership and licence",
         intro = "CALLIN, including its name, logo, design, source code, and content, is owned by Sambhav Dwivedi and is " +
-                "protected by copyright and other laws. © 2026 Sambhav Dwivedi. All rights reserved.",
+                "protected by copyright and other laws. © ${java.time.Year.now().value} Sambhav Dwivedi. All rights reserved.",
         points = listOf(
             PolicyPoint(
                 "Your licence",

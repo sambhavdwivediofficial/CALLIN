@@ -1,18 +1,3 @@
-//package com.sambhavdwivedi.callin.ui.legal
-//
-//import androidx.compose.runtime.Composable
-//
-//@Composable
-//fun PrivacyScreen(onBack: () -> Unit) {
-//    LegalScaffold(title = "Privacy Policy", onBack = onBack) {
-//        LegalSection("1. What we collect", "Your email and name from Google Sign-In, the username and display name you choose, and basic call metadata (who called whom, when, and for how long) — never the audio content of your calls.")
-//        LegalSection("2. How we use it", "To identify you to other CALLIN users, connect your calls, show your call history, and send incoming-call notifications when the app is in the background.")
-//        LegalSection("3. What we don't do", "We don't sell your data, and we don't listen to or record your calls. Audio is relayed only to establish your connection, never stored.")
-//        LegalSection("4. Sharing", "Your username, display name, and avatar are visible to other CALLIN users you call or who call you. Your email is never shown to other users.")
-//        LegalSection("5. Your choices", "You can request account deletion at any time, which removes your profile and call history from our systems.")
-//        LegalSection("6. Contact", "Questions about this policy can be sent to the app's support contact once CALLIN is publicly released.")
-//    }
-//}
 package com.sambhavdwivedi.callin.ui.legal
 
 import androidx.compose.foundation.background
@@ -38,6 +23,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -59,11 +45,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
-import androidx.compose.runtime.remember
-
-// ─────────────────────────────────────────────────────────────
-// Privacy Policy
-// ─────────────────────────────────────────────────────────────
 
 @Composable
 fun PrivacyScreen(onBack: () -> Unit) {
@@ -405,10 +386,6 @@ private val privacySections = listOf(
     ),
 )
 
-// ─────────────────────────────────────────────────────────────
-// Shared building blocks (also used by TermsScreen)
-// ─────────────────────────────────────────────────────────────
-
 internal const val LEGAL_UPDATED_LABEL = "21 Sep 2026"
 
 private const val DEVELOPER_NAME = "Sambhav Dwivedi"
@@ -417,13 +394,11 @@ private const val DEVELOPER_SITE_LABEL = "www.sambhavdwivedi.in"
 private const val REPO_URL = "https://github.com/sambhavdwivediofficial/CALLIN"
 private const val REPO_LABEL = "github.com/sambhavdwivediofficial/CALLIN"
 
-/** One bullet in a legal section. [lead] is an optional bold label in front of the sentence. */
 internal data class PolicyPoint(
     val lead: String? = null,
     val text: String,
 )
 
-/** One numbered section of a legal document. */
 internal data class PolicySectionData(
     val icon: ImageVector,
     val title: String,
@@ -433,10 +408,6 @@ internal data class PolicySectionData(
     val outro: String? = null,
 )
 
-/**
- * Renders a complete legal page inside [LegalScaffold]: hero, highlights card,
- * numbered sections, and the developer footer. Uses only CallinColors tokens.
- */
 @Composable
 internal fun LegalDocument(
     heroIcon: ImageVector,
@@ -744,10 +715,6 @@ private fun LegalDivider() {
     )
 }
 
-// ─────────────────────────────────────────────────────────────
-// Developer footer: website + GitHub, both open in the browser
-// ─────────────────────────────────────────────────────────────
-
 @Composable
 private fun DeveloperFooter() {
     val uriHandler = LocalUriHandler.current
@@ -877,10 +844,6 @@ private fun FooterLinkRow(
     }
 }
 
-/**
- * GitHub mark (Octicons "mark-github", 16px grid) as an ImageVector, so no
- * drawable resource is needed. Tinted by the Icon that displays it.
- */
 private const val GITHUB_MARK_PATH =
     "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49" +
             "-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82" +
