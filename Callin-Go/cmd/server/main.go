@@ -1,5 +1,6 @@
 // Command server boots the CALLIN backend: HTTP API, WebSocket
-// signaling, and all the wiring for auth, users, calls, and push.
+// signaling, and all the wiring for auth, users, connections, calls,
+// and push.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"callin-go/internal/auth"
 	"callin-go/internal/call"
 	"callin-go/internal/config"
+	"callin-go/internal/connection"
 	"callin-go/internal/db"
 	"callin-go/internal/middleware"
 	"callin-go/internal/push"
@@ -81,6 +83,9 @@ func main() {
 	authHandler := auth.NewHandler(authService)
 	callHandler := call.NewHandler(pool)
 
+	connectionRepo := connection.NewRepository(pool)
+	connectionHandler := connection.NewHandler(connectionRepo)
+
 	verify := func(token string) (string, error) {
 		claims, err := tokenManager.Verify(token)
 		if err != nil {
@@ -105,6 +110,14 @@ func main() {
 	mux.Handle("POST /api/v1/users/me/device", requireAuth(http.HandlerFunc(userHandler.RegisterDevice)))
 	mux.Handle("POST /api/v1/users/me/complete-profile", requireAuth(http.HandlerFunc(userHandler.CompleteProfile)))
 	mux.Handle("POST /api/v1/users/me/avatar", requireAuth(http.HandlerFunc(userHandler.UploadAvatar)))
+
+	// Connection requests — what the "Add via QR" flow resolves to:
+	// send/auto-accept a request, list requests waiting on you,
+	// respond to one, and list your accepted connections.
+	mux.Handle("POST /api/v1/connections/request", requireAuth(http.HandlerFunc(connectionHandler.SendRequest)))
+	mux.Handle("GET /api/v1/connections/pending", requireAuth(http.HandlerFunc(connectionHandler.Pending)))
+	mux.Handle("POST /api/v1/connections/{id}/respond", requireAuth(http.HandlerFunc(connectionHandler.Respond)))
+	mux.Handle("GET /api/v1/connections", requireAuth(http.HandlerFunc(connectionHandler.List)))
 
 	mux.Handle("GET /api/v1/calls", requireAuth(http.HandlerFunc(callHandler.History)))
 
