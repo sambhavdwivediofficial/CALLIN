@@ -3,6 +3,7 @@ package com.sambhavdwivedi.callin.ui.home
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -47,22 +48,38 @@ import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.data.remote.dto.PublicUserDto
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
-import kotlinx.coroutines.delay
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalFocusManager
 
 @Composable
 fun ContactsScreen(container: AppContainer) {
-    var users by remember { mutableStateOf<List<PublicUserDto>>(emptyList()) }
-    var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val focusManager = LocalFocusManager.current
 
-    // This is used only for filtering.
-    var searchQuery by remember { mutableStateOf("") }
+    var users by remember {
+        mutableStateOf<List<PublicUserDto>>(emptyList())
+    }
+
+    var isLoading by remember {
+        mutableStateOf(true)
+    }
+
+    var errorMessage by remember {
+        mutableStateOf<String?>(null)
+    }
+
+    var searchQuery by remember {
+        mutableStateOf("")
+    }
 
     LaunchedEffect(Unit) {
         container.userRepository.listUsers()
-            .onSuccess { users = it }
-            .onFailure { e ->
-                errorMessage = e.message ?: "Could not load contacts."
+            .onSuccess { loadedUsers ->
+                users = loadedUsers
+            }
+            .onFailure { error ->
+                errorMessage = error.message
+                    ?: "Could not load contacts."
             }
 
         isLoading = false
@@ -72,62 +89,44 @@ fun ContactsScreen(container: AppContainer) {
         if (searchQuery.isBlank()) {
             users
         } else {
-            val query = searchQuery.trim().lowercase()
+            val query = searchQuery
+                .trim()
+                .lowercase()
 
             users.filter { user ->
-                val name = user.display_name.orEmpty().lowercase()
-                val username = user.username.orEmpty().lowercase()
+                val name = user.display_name
+                    .orEmpty()
+                    .lowercase()
 
-                name.startsWith(query) || username.startsWith(query)
+                val username = user.username
+                    .orEmpty()
+                    .lowercase()
+
+                name.startsWith(query) ||
+                        username.startsWith(query)
             }
         }
     }
 
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    focusManager.clearFocus()
+                }
+            }
     ) {
-        // Header
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Contacts title
-            Icon(
-                imageVector = Icons.Filled.People,
-                contentDescription = null,
-                tint = CallinColors.TextPrimary,
-                modifier = Modifier.size(24.dp)
-            )
 
-            Spacer(Modifier.width(8.dp))
-
-            Text(
-                text = "Contacts",
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp
-            )
-
-            Spacer(Modifier.width(12.dp))
-
-            // Search box
-            SearchBox(
-                onSearchChange = { searchQuery = it }
-            )
-        }
+        ContactsHeader(
+            searchQuery = searchQuery,
+            onSearchChange = { searchQuery = it }
+        )
 
         when {
+
             isLoading -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PulseBarsLoader(
-                        barColor = CallinColors.TextSecondary
-                    )
-                }
+                LoadingState()
             }
 
             errorMessage != null -> {
@@ -136,11 +135,14 @@ fun ContactsScreen(container: AppContainer) {
 
             users.isEmpty() -> {
                 EmptyState(
-                    "No other CALLIN users yet.\nInvite a friend to get started."
+                    "No other CALLIN users yet.\n" +
+                            "Invite a friend to get started."
                 )
             }
 
-            filteredUsers.isEmpty() && searchQuery.isNotBlank() -> {
+            filteredUsers.isEmpty() &&
+                    searchQuery.isNotBlank() -> {
+
                 EmptyState(
                     "No contacts found for \"$searchQuery\"."
                 )
@@ -153,7 +155,9 @@ fun ContactsScreen(container: AppContainer) {
                     items(
                         items = filteredUsers,
                         key = { user ->
-                            user.username ?: user.display_name ?: ""
+                            user.username
+                                ?: user.display_name
+                                ?: ""
                         }
                     ) { user ->
                         ContactRow(user)
@@ -165,40 +169,161 @@ fun ContactsScreen(container: AppContainer) {
 }
 
 @Composable
-private fun SearchBox(
+private fun ContactsHeader(
+    searchQuery: String,
     onSearchChange: (String) -> Unit
 ) {
-    // Local state makes typed characters appear immediately.
-    var localSearchQuery by remember { mutableStateOf("") }
-
-    // Filtering updates slightly after typing, so the text field itself
-    // does not wait for the parent screen to recompose.
-    LaunchedEffect(localSearchQuery) {
-        delay(80)
-        onSearchChange(localSearchQuery)
-    }
-
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp,
+                vertical = 16.dp
+            )
+    ) {
+
+        val availableWidth = maxWidth
+
+        /*
+         * Responsive search width.
+         *
+         * PHONE
+         * -> compact fixed width
+         *
+         * TABLET
+         * -> wider, but not huge
+         *
+         * LARGE TABLET
+         * -> grows further
+         *
+         * The search box never fills the entire remaining width.
+         */
+
+        val searchWidth = when {
+            availableWidth < 600.dp -> {
+                250.dp
+            }
+
+            availableWidth < 900.dp -> {
+                320.dp
+            }
+
+            availableWidth < 1200.dp -> {
+                390.dp
+            }
+
+            else -> {
+                460.dp
+            }
+        }
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+
+            /*
+             * TITLE
+             *
+             * Natural width only.
+             * Never stretches on tablet.
+             */
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+
+                Icon(
+                    imageVector = Icons.Filled.People,
+                    contentDescription = null,
+                    tint = CallinColors.TextPrimary,
+                    modifier = Modifier.size(24.dp)
+                )
+
+                Spacer(
+                    modifier = Modifier.width(8.dp)
+                )
+
+                Text(
+                    text = "Contacts",
+                    color = CallinColors.TextPrimary,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 24.sp,
+                    maxLines = 1
+                )
+            }
+
+            /*
+             * PHONE:
+             *
+             * Keep search close to title.
+             *
+             * TABLET:
+             *
+             * Push search completely toward the right edge.
+             */
+            if (availableWidth < 600.dp) {
+
+                Spacer(
+                    modifier = Modifier.width(12.dp)
+                )
+
+            } else {
+
+                Spacer(
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            /*
+             * Search width is controlled independently.
+             *
+             * Right edge stays aligned with the header's
+             * right padding.
+             */
+            SearchBox(
+                modifier = Modifier.width(searchWidth),
+                value = searchQuery,
+                onSearchChange = onSearchChange
+            )
+        }
+    }
+}
+
+@Composable
+private fun SearchBox(
+    modifier: Modifier = Modifier,
+    value: String,
+    onSearchChange: (String) -> Unit
+) {
+    Box(
+        modifier = modifier
             .height(40.dp)
-            .width(250.dp)
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color.Transparent)
+            .clip(
+                RoundedCornerShape(20.dp)
+            )
+            .background(
+                Color.Transparent
+            )
             .border(
                 width = 1.dp,
-                color = CallinColors.TextSecondary.copy(alpha = 0.22f),
+                color = CallinColors.TextSecondary.copy(
+                    alpha = 0.22f
+                ),
                 shape = RoundedCornerShape(20.dp)
             )
-            .padding(horizontal = 12.dp),
+            .padding(
+                horizontal = 12.dp
+            ),
         contentAlignment = Alignment.CenterStart
     ) {
+
         BasicTextField(
-            value = localSearchQuery,
-            onValueChange = {
-                localSearchQuery = it
-            },
+            value = value,
+            onValueChange = onSearchChange,
             singleLine = true,
-            cursorBrush = SolidColor(CallinColors.TextSecondary),
+            cursorBrush = SolidColor(
+                CallinColors.TextSecondary
+            ),
             keyboardOptions = KeyboardOptions(
                 keyboardType = KeyboardType.Text,
                 imeAction = ImeAction.Search
@@ -212,11 +337,13 @@ private fun SearchBox(
                 .fillMaxWidth()
                 .height(18.dp),
             decorationBox = { innerTextField ->
+
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.CenterStart
                 ) {
-                    if (localSearchQuery.isEmpty()) {
+
+                    if (value.isEmpty()) {
                         Text(
                             text = "Search",
                             color = CallinColors.TextSecondary,
@@ -233,26 +360,36 @@ private fun SearchBox(
 }
 
 @Composable
-private fun ContactRow(user: PublicUserDto) {
+private fun ContactRow(
+    user: PublicUserDto
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+            .padding(
+                horizontal = 20.dp,
+                vertical = 10.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
+
         Box(
             modifier = Modifier
                 .size(48.dp)
                 .clip(CircleShape)
-                .background(CallinColors.Background)
+                .background(
+                    CallinColors.Background
+                )
                 .border(
-                    1.dp,
-                    CallinColors.TextSecondary,
-                    CircleShape
+                    width = 1.dp,
+                    color = CallinColors.TextSecondary,
+                    shape = CircleShape
                 ),
             contentAlignment = Alignment.Center
         ) {
+
             if (!user.avatar_url.isNullOrBlank()) {
+
                 AsyncImage(
                     model = user.avatar_url,
                     contentDescription = null,
@@ -261,7 +398,9 @@ private fun ContactRow(user: PublicUserDto) {
                         .clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
+
             } else {
+
                 Icon(
                     imageVector = Icons.Filled.Person,
                     contentDescription = null,
@@ -270,9 +409,12 @@ private fun ContactRow(user: PublicUserDto) {
             }
         }
 
-        Spacer(Modifier.width(14.dp))
+        Spacer(
+            modifier = Modifier.width(14.dp)
+        )
 
         Column {
+
             Text(
                 text = user.display_name
                     ?: user.username
@@ -282,9 +424,10 @@ private fun ContactRow(user: PublicUserDto) {
                 fontSize = 16.sp
             )
 
-            user.username?.let {
+            user.username?.let { username ->
+
                 Text(
-                    text = "@$it",
+                    text = "@$username",
                     color = CallinColors.TextSecondary,
                     fontSize = 13.sp
                 )
@@ -294,7 +437,21 @@ private fun ContactRow(user: PublicUserDto) {
 }
 
 @Composable
-fun EmptyState(message: String) {
+private fun LoadingState() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        PulseBarsLoader(
+            barColor = CallinColors.TextSecondary
+        )
+    }
+}
+
+@Composable
+fun EmptyState(
+    message: String
+) {
     Box(
         modifier = Modifier
             .fillMaxSize()
