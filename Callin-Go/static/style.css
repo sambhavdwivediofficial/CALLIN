@@ -1,0 +1,364 @@
+:root {
+	--background: #03060E;
+	--background-top: #061426;
+	--background-bottom: #020914;
+
+	--text-primary: #FFFFFF;
+	--text-secondary: #AFC3DE;
+
+	--accent: #2D8CFF;
+	--circle: #10365D;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+html,
+body {
+	width: 100%;
+	height: 100%;
+    user-select: none;
+}
+
+body {
+	min-height: 100dvh;
+
+	position: relative;
+
+	overflow: hidden;
+
+	background:
+		linear-gradient(
+			180deg,
+			var(--background-top) 0%,
+			var(--background) 55%,
+			var(--background-bottom) 100%
+		);
+
+	color: var(--text-primary);
+
+	font-family:
+		"Inter",
+		-apple-system,
+		BlinkMacSystemFont,
+		"Segoe UI",
+		Roboto,
+		Helvetica,
+		Arial,
+		sans-serif;
+}
+
+/* Decorative circles */
+
+.background-circle {
+	position: fixed;
+
+	width: 390px;
+	height: 390px;
+
+	border-radius: 50%;
+
+	background: var(--circle);
+
+	opacity: 0.9;
+
+	pointer-events: none;
+
+	z-index: 0;
+}
+
+.circle-top {
+	top: -175px;
+	left: -95px;
+}
+
+.circle-bottom {
+	right: -185px;
+	bottom: -185px;
+}
+
+/* Main page */
+
+.page {
+	position: relative;
+	z-index: 1;
+
+	width: 100%;
+	min-height: 100dvh;
+
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	padding: 32px 24px;
+}
+
+.content {
+	width: min(100%, 760px);
+
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+
+	text-align: center;
+}
+
+/* CALLIN */
+
+h1 {
+	margin-bottom: 28px;
+
+	color: var(--text-primary);
+
+	font-size: clamp(64px, 9vw, 104px);
+	font-weight: 800;
+
+	line-height: 0.9;
+
+	letter-spacing: -0.05em;
+}
+
+/* Description */
+
+.description {
+	color: var(--text-secondary);
+
+	font-size: clamp(16px, 2vw, 21px);
+	font-weight: 400;
+
+	line-height: 1.7;
+
+	text-align: center;
+}
+
+/* Features */
+
+.features {
+	margin-top: 58px;
+
+	width: fit-content;
+
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+
+	gap: 25px;
+}
+
+.feature {
+	display: flex;
+	align-items: center;
+
+	gap: 16px;
+
+	color: var(--text-secondary);
+
+	font-size: clamp(15px, 1.8vw, 19px);
+	font-weight: 400;
+
+	line-height: 1.45;
+
+	white-space: nowrap;
+}
+
+.dot {
+	width: 9px;
+	height: 9px;
+	flex: 0 0 9px;
+
+	border-radius: 50%;
+
+	background: var(--accent);
+
+	box-shadow:
+		0 0 9px rgba(45, 140, 255, 0.55),
+		0 0 18px rgba(45, 140, 255, 0.20);
+}
+
+/* Social icons */
+
+.socials {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	gap: 18px;
+
+	margin-top: 48px;
+}
+
+.social-link {
+	width: 42px;
+	height: 42px;
+
+	display: flex;
+	align-items: center;
+	justify-content: center;
+
+	border: 1px solid rgba(175, 195, 222, 0.15);
+	border-radius: 50%;
+
+	background: rgba(255, 255, 255, 0.025);
+
+	color: var(--text-secondary);
+
+	text-decoration: none;
+
+	transition:
+		transform 0.2s ease,
+		background 0.2s ease,
+		border-color 0.2s ease,
+		color 0.2s ease;
+}
+
+.social-link:hover {
+	transform: translateY(-2px);
+
+	background: rgba(175, 195, 222, 0.08);
+
+	border-color: rgba(175, 195, 222, 0.28);
+
+	color: var(--text-primary);
+}
+
+.social-link:focus-visible {
+	outline: 2px solid var(--text-secondary);
+	outline-offset: 4px;
+}
+
+.social-link svg {
+	width: 19px;
+	height: 19px;
+
+	fill: currentColor;
+}
+
+/* Copyright */
+
+.copyright {
+	margin-top: 18px;
+
+	color: var(--text-secondary);
+
+	font-size: 11px;
+	font-weight: 500;
+
+	line-height: 1.5;
+
+	text-align: center;
+}
+
+.copyright a {
+	color: var(--text-primary);
+
+	font-weight: 700;
+
+	text-decoration: none;
+}
+
+
+/* Mobile */
+
+@media (max-width: 600px) {
+
+	.page {
+		padding: 24px 16px;
+	}
+
+	.background-circle {
+		width: 300px;
+		height: 300px;
+	}
+
+	.circle-top {
+		top: -165px;
+		left: -150px;
+	}
+
+	.circle-bottom {
+		right: -150px;
+		bottom: -165px;
+	}
+
+	h1 {
+		margin-bottom: 24px;
+
+		font-size: clamp(58px, 17vw, 76px);
+
+		letter-spacing: -0.07em;
+	}
+
+	.description {
+		font-size: 15px;
+
+		line-height: 1.65;
+	}
+
+	.features {
+		margin-top: 52px;
+
+		gap: 22px;
+	}
+
+	.feature {
+		font-size: 12.5px;
+
+		gap: 10px;
+
+		white-space: nowrap;
+	}
+
+	.dot {
+		width: 8px;
+		height: 8px;
+		flex-basis: 8px;
+	}
+
+	.socials {
+		margin-top: 40px;
+
+		gap: 16px;
+	}
+
+	.social-link {
+		width: 40px;
+		height: 40px;
+	}
+
+	.copyright {
+		margin-top: 16px;
+
+		font-size: 10.5px;
+	}
+}
+
+/* Small phones */
+
+@media (max-width: 380px) {
+
+	.page {
+		padding-left: 12px;
+		padding-right: 12px;
+	}
+
+	h1 {
+		font-size: 54px;
+	}
+
+	.description {
+		font-size: 14px;
+	}
+
+	.feature {
+		font-size: 11.5px;
+		gap: 8px;
+	}
+
+	.socials {
+		margin-top: 34px;
+	}
+}

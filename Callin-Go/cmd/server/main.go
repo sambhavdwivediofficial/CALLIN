@@ -100,7 +100,20 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /healthz", healthCheck)
+    mux.Handle("GET /static/", http.StripPrefix(
+    	"/static/",
+    	http.FileServer(http.Dir("static")),
+    ))
+    
+    mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+    	http.ServeFile(w, r, "static/image.png")
+    })
+    
+    mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+    	http.ServeFile(w, r, "static/index.html")
+    })
+    
+    mux.HandleFunc("GET /healthz", healthCheck)
 
 	mux.HandleFunc("POST /api/v1/auth/register", authHandler.Register)
 	mux.HandleFunc("POST /api/v1/auth/login", authHandler.Login)
