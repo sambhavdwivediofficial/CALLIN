@@ -51,6 +51,13 @@ private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
  * out if that refresh is explicitly rejected (never on a timeout or
  * no-connection error).
  *
+ * While that local lookup runs — normally a fraction of a
+ * millisecond, but potentially a little longer on a slow/cold
+ * DataStore read — sessionState stays at SessionState.Loading, so
+ * the branded PulseBarsLoader below is always what's on screen
+ * until a real destination is known. There is no path that skips
+ * straight to a blank screen.
+ *
  * Every route change fades rather than cuts — this is a one-time
  * NavHost-level setting, so every screen added to the app from here
  * on gets the same smooth transition for free.
