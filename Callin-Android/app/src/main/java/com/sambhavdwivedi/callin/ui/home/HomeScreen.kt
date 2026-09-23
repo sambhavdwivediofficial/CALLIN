@@ -38,7 +38,12 @@ private enum class HomeTab(val label: String) {
 @Composable
 fun HomeScreen(
     container: AppContainer,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onShowQr: () -> Unit,
+    onScanQr: () -> Unit,
+    onOpenNotifications: () -> Unit,
+    onOpenTerms: () -> Unit,
+    onOpenPrivacy: () -> Unit
 ) {
     var selectedTab by remember { mutableStateOf(HomeTab.Contacts) }
 
@@ -78,7 +83,15 @@ fun HomeScreen(
             when (selectedTab) {
                 HomeTab.Recents -> RecentsScreen()
                 HomeTab.Contacts -> ContactsScreen(container = container)
-                HomeTab.Profile -> ProfileScreen(container = container, onSignOut = onSignOut)
+                HomeTab.Profile -> ProfileScreen(
+                    container = container,
+                    onSignOut = onSignOut,
+                    onShowQr = onShowQr,
+                    onScanQr = onScanQr,
+                    onOpenNotifications = onOpenNotifications,
+                    onOpenTerms = onOpenTerms,
+                    onOpenPrivacy = onOpenPrivacy
+                )
             }
         }
     }

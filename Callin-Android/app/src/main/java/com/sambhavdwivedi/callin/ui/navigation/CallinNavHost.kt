@@ -15,20 +15,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sambhavdwivedi.callin.CallinApplication
-import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.auth.CompleteProfileScreen
 import com.sambhavdwivedi.callin.ui.auth.LoginScreen
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.home.HomeScreen
 import com.sambhavdwivedi.callin.ui.legal.PrivacyScreen
 import com.sambhavdwivedi.callin.ui.legal.TermsScreen
+import com.sambhavdwivedi.callin.ui.notifications.NotificationsScreen
+import com.sambhavdwivedi.callin.ui.qr.MyQrCodeScreen
+import com.sambhavdwivedi.callin.ui.qr.ScanQrScreen
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
-import java.io.IOException
 
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
@@ -41,22 +41,10 @@ private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
  *
  * This check is purely local and synchronous — it never waits on a
  * network call, so it resolves instantly whether the phone is
- * offline, the server is down, or everything is fine. A locally
- * stored session is trusted at face value: the only things that
- * force the Login screen are an explicit sign-out or an app
- * reinstall, both of which clear the local token directly. There is
- * nothing to "verify" with the server here — if the token later
- * turns out to be expired or revoked, AuthInterceptor refreshes it
- * transparently on the first real API call, and only signs the user
- * out if that refresh is explicitly rejected (never on a timeout or
- * no-connection error).
- *
- * While that local lookup runs — normally a fraction of a
- * millisecond, but potentially a little longer on a slow/cold
- * DataStore read — sessionState stays at SessionState.Loading, so
- * the branded PulseBarsLoader below is always what's on screen
- * until a real destination is known. There is no path that skips
- * straight to a blank screen.
+ * offline, the server is down, or everything is fine. If a token
+ * later turns out to be expired or revoked, AuthInterceptor
+ * refreshes it transparently on the first real API call, and only
+ * signs the user out if that refresh is explicitly rejected.
  *
  * Every route change fades rather than cuts — this is a one-time
  * NavHost-level setting, so every screen added to the app from here
@@ -139,7 +127,12 @@ fun CallinNavHost() {
                     navController.navigate(Routes.Login) {
                         popUpTo(0) { inclusive = true }
                     }
-                }
+                },
+                onOpenMyQr = { navController.navigate(Routes.MyQrCode) },
+                onOpenScanQr = { navController.navigate(Routes.ScanQrCode) },
+                onOpenNotifications = { navController.navigate(Routes.Notifications) },
+                onOpenTerms = { navController.navigate(Routes.Terms) },
+                onOpenPrivacy = { navController.navigate(Routes.Privacy) }
             )
         }
         composable(Routes.Terms) {
@@ -147,6 +140,25 @@ fun CallinNavHost() {
         }
         composable(Routes.Privacy) {
             PrivacyScreen(onBack = { navController.popBackStack() })
+        }
+        composable(Routes.MyQrCode) {
+            MyQrCodeScreen(
+                container = container,
+                onBack = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.ScanQrCode) {
+            ScanQrScreen(
+                container = container,
+                onBack = { navController.popBackStack() },
+                onAdded = { navController.popBackStack() }
+            )
+        }
+        composable(Routes.Notifications) {
+            NotificationsScreen(
+                container = container,
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }
