@@ -403,7 +403,10 @@ fun CompleteProfileScreen(
                                 lastName.trim()
                             )
                             .onSuccess {
-                                onCompleted()
+                                scope.launch {
+                                    container.tokenStore.setProfileCompleted(true)
+                                    onCompleted()
+                                }
                             }
                             .onFailure { e ->
                                 isSubmitting = false

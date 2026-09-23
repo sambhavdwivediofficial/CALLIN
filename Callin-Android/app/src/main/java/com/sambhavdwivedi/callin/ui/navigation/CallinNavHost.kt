@@ -6,7 +6,6 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -16,16 +15,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.sambhavdwivedi.callin.CallinApplication
+import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.auth.CompleteProfileScreen
 import com.sambhavdwivedi.callin.ui.auth.LoginScreen
+import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.home.HomeScreen
 import com.sambhavdwivedi.callin.ui.legal.PrivacyScreen
 import com.sambhavdwivedi.callin.ui.legal.TermsScreen
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
+import java.io.IOException
 
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
@@ -35,6 +38,18 @@ private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
  * account hasn't finished onboarding, Home otherwise. This is the
  * single place that owns that decision — screens themselves don't
  * need to know how they got there.
+ *
+ * This check is purely local and synchronous — it never waits on a
+ * network call, so it resolves instantly whether the phone is
+ * offline, the server is down, or everything is fine. A locally
+ * stored session is trusted at face value: the only things that
+ * force the Login screen are an explicit sign-out or an app
+ * reinstall, both of which clear the local token directly. There is
+ * nothing to "verify" with the server here — if the token later
+ * turns out to be expired or revoked, AuthInterceptor refreshes it
+ * transparently on the first real API call, and only signs the user
+ * out if that refresh is explicitly rejected (never on a timeout or
+ * no-connection error).
  *
  * Every route change fades rather than cuts — this is a one-time
  * NavHost-level setting, so every screen added to the app from here
@@ -50,21 +65,13 @@ fun CallinNavHost() {
 
     LaunchedEffect(Unit) {
         val token = container.tokenStore.getAccessToken()
-        if (token.isNullOrBlank()) {
-            sessionState = SessionState.LoggedOut
-            return@LaunchedEffect
+        sessionState = if (token.isNullOrBlank()) {
+            SessionState.LoggedOut
+        } else if (container.tokenStore.getProfileCompleted()) {
+            SessionState.LoggedIn
+        } else {
+            SessionState.NeedsProfile
         }
-        container.userRepository.getMe()
-            .onSuccess { me ->
-                sessionState = if (me.profile_completed) SessionState.LoggedIn else SessionState.NeedsProfile
-            }
-            .onFailure {
-                // Token invalid/expired and refresh isn't wired up yet
-                // for this screen — safest is to sign the user out
-                // cleanly rather than get stuck.
-                container.tokenStore.clear()
-                sessionState = SessionState.LoggedOut
-            }
     }
 
     if (sessionState == SessionState.Loading) {
@@ -74,7 +81,9 @@ fun CallinNavHost() {
                 .background(CallinColors.Background),
             contentAlignment = Alignment.Center
         ) {
-            CircularProgressIndicator(color = CallinColors.TextSecondary)
+            PulseBarsLoader(
+                barColor = CallinColors.TextSecondary
+            )
         }
         return
     }

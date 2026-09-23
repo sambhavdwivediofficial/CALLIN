@@ -13,29 +13,26 @@ import (
 )
 
 var (
-	ErrInvalidCredentials    = errors.New("auth: invalid credentials")
-	ErrUsernameTaken         = errors.New("auth: username or email already in use")
-	ErrWeakPassword          = errors.New("auth: password must be at least 8 characters")
-	ErrInvalidUsername       = errors.New("auth: username must be 3-32 characters, letters, numbers, underscores only")
-	ErrNoPassword            = errors.New("auth: this account has no password — it was created with Google Sign-In")
-	ErrGoogleNotConfigured   = errors.New("auth: google sign-in is not configured on this server yet")
+	ErrInvalidCredentials  = errors.New("auth: invalid credentials")
+	ErrUsernameTaken       = errors.New("auth: username or email already in use")
+	ErrWeakPassword        = errors.New("auth: password must be at least 8 characters")
+	ErrInvalidUsername     = errors.New("auth: username must be 3-32 characters, letters, numbers, underscores only")
+	ErrNoPassword          = errors.New("auth: this account has no password — it was created with Google Sign-In")
+	ErrGoogleNotConfigured = errors.New("auth: google sign-in is not configured on this server yet")
 )
 
 var usernameRE = regexp.MustCompile(`^[a-zA-Z0-9_]{3,32}$`)
 
-// Service implements registration, login, token refresh, and Google
-// Sign-In. It sits between the HTTP handlers and the user repository.
 type Service struct {
 	users  *user.Repository
 	tokens *TokenManager
-	google *GoogleVerifier // nil when GOOGLE_WEB_CLIENT_ID isn't configured
+	google *GoogleVerifier
 }
 
 func NewService(users *user.Repository, tokens *TokenManager, google *GoogleVerifier) *Service {
 	return &Service{users: users, tokens: tokens, google: google}
 }
 
-// AuthResult is returned from every successful auth operation.
 type AuthResult struct {
 	User         user.Me `json:"user"`
 	AccessToken  string  `json:"access_token"`
@@ -95,6 +92,11 @@ func (s *Service) Login(ctx context.Context, identifier, password string) (*Auth
 	return s.issueTokens(u)
 }
 
+// Refresh exchanges a valid refresh token for a new access token only.
+// The refresh token itself is returned unchanged: its expiry is fixed
+// at the moment it was first issued (sign-up or sign-in) and is never
+// extended just by being used, so a session lasts exactly
+// JWT_REFRESH_TTL_HOURS from that original moment, not from last use.
 func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult, error) {
 	claims, err := s.tokens.Verify(refreshToken)
 	if err != nil {
@@ -106,7 +108,16 @@ func (s *Service) Refresh(ctx context.Context, refreshToken string) (*AuthResult
 		return nil, ErrInvalidCredentials
 	}
 
-	return s.issueTokens(u)
+	access, err := s.tokens.GenerateAccessToken(u.ID)
+	if err != nil {
+		return nil, fmt.Errorf("generating access token: %w", err)
+	}
+
+	return &AuthResult{
+		User:         u.ToMe(),
+		AccessToken:  access,
+		RefreshToken: refreshToken,
+	}, nil
 }
 
 // GoogleSignIn verifies a Google ID token minted on-device by
@@ -131,6 +142,9 @@ func (s *Service) GoogleSignIn(ctx context.Context, rawIDToken string) (*AuthRes
 	return s.issueTokens(u)
 }
 
+// issueTokens mints a brand-new access/refresh pair. Called only at
+// sign-up and sign-in — this is the single moment a session's 1-year
+// clock starts. Refresh() never calls this, so the clock never resets.
 func (s *Service) issueTokens(u *user.User) (*AuthResult, error) {
 	access, err := s.tokens.GenerateAccessToken(u.ID)
 	if err != nil {

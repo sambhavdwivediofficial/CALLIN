@@ -9,8 +9,10 @@ import com.sambhavdwivedi.callin.data.remote.dto.RegisterRequest
 
 /**
  * Wraps the auth API and keeps TokenStore in sync with every
- * successful auth response, so the rest of the app only ever needs
- * to ask "am I logged in" and never touches tokens directly.
+ * successful auth response — both the token pair and the
+ * profile_completed flag — so the rest of the app only ever needs
+ * to ask "am I logged in" / "is my profile done" locally, and never
+ * touches tokens or a network call directly for that.
  */
 class AuthRepository(
     private val api: AuthApi,
@@ -20,18 +22,21 @@ class AuthRepository(
         runCatching {
             val response = api.register(RegisterRequest(username, email, password, displayName))
             tokenStore.saveTokens(response.access_token, response.refresh_token)
+            tokenStore.setProfileCompleted(response.user.profile_completed)
         }
 
     suspend fun login(identifier: String, password: String): Result<Unit> =
         runCatching {
             val response = api.login(LoginRequest(identifier, password))
             tokenStore.saveTokens(response.access_token, response.refresh_token)
+            tokenStore.setProfileCompleted(response.user.profile_completed)
         }
 
     /** Returns true if this account still needs to complete its profile. */
     suspend fun googleSignIn(idToken: String): Result<Boolean> = runCatching {
         val response = api.googleSignIn(GoogleSignInRequest(idToken))
         tokenStore.saveTokens(response.access_token, response.refresh_token)
+        tokenStore.setProfileCompleted(response.user.profile_completed)
         !response.user.profile_completed
     }
 
