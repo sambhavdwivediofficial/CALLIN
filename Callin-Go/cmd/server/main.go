@@ -25,6 +25,7 @@ import (
 	"callin-go/internal/storage"
 	"callin-go/internal/user"
 	"callin-go/pkg/logger"
+	"callin-go/pkg/keepalive"
 )
 
 func main() {
@@ -74,6 +75,8 @@ func main() {
 	} else {
 		avatarStorage = storage.NewSupabaseStorage(cfg.SupabaseURL, cfg.SupabaseServiceKey, cfg.SupabaseBucket)
 	}
+
+	keepalive.Start(cfg.SelfURL+"/healthz", 10*time.Minute, log)
 
 	hub := signaling.NewHub(log)
 	callRegistry := call.NewRegistry()

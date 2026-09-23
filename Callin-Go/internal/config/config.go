@@ -16,6 +16,7 @@ import (
 type Config struct {
 	Environment string
 	Port        string
+	SelfURL string
 
 	DatabaseURL string
 
@@ -59,6 +60,7 @@ func Load() (*Config, error) {
 		SupabaseBucket:     getEnv("SUPABASE_AVATARS_BUCKET", "avatars"),
 
 		AllowedOrigins: splitAndTrim(getEnv("ALLOWED_ORIGINS", "*")),
+		SelfURL: getEnv("RENDER_EXTERNAL_URL", getEnv("SELF_URL", "")),
 	}
 
 	accessMinutes, err := getEnvInt("JWT_ACCESS_TTL_MINUTES", 15)
