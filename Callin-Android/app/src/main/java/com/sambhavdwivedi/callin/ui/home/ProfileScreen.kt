@@ -1,7 +1,10 @@
 package com.sambhavdwivedi.callin.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,11 +20,15 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -38,6 +45,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -47,16 +55,27 @@ import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
 import kotlinx.coroutines.launch
 
+/**
+ * Profile tab. The header row (scan QR / my QR / notifications /
+ * menu) keeps the exact layout that was already placed here — each
+ * icon just gets a click target wired to a real destination now.
+ */
 @Composable
 fun ProfileScreen(
     container: AppContainer,
-    onSignOut: () -> Unit
+    onSignOut: () -> Unit,
+    onOpenMyQr: () -> Unit,
+    onOpenScanQr: () -> Unit,
+    onOpenNotifications: () -> Unit,
+    onOpenTerms: () -> Unit,
+    onOpenPrivacy: () -> Unit,
 ) {
     val scope = rememberCoroutineScope()
 
     var me by remember { mutableStateOf<MeDto?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var isSigningOut by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         container.userRepository.getMe()
@@ -103,34 +122,94 @@ fun ProfileScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Filled.QrCodeScanner,
-                    contentDescription = "Scan QR",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
+                Box(
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenScanQr
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.QrCodeScanner,
+                        contentDescription = "Scan QR",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
 
                 Spacer(Modifier.width(16.dp))
 
-                Icon(
-                    imageVector = Icons.Filled.QrCode,
-                    contentDescription = "QR Code",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
+                Box(
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenMyQr
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.QrCode,
+                        contentDescription = "QR Code",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
 
                 Spacer(Modifier.width(16.dp))
 
-                Icon(
-                    imageVector = Icons.Filled.NotificationsNone,
-                    contentDescription = "Notifications",
-                    tint = Color.White,
-                    modifier = Modifier.size(26.dp)
-                )
+                Box(
+                    modifier = Modifier.clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onOpenNotifications
+                    )
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.NotificationsNone,
+                        contentDescription = "Notifications",
+                        tint = Color.White,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
 
                 Spacer(Modifier.width(16.dp))
 
-                CustomMenuIcon()
+                Box {
+                    Box(
+                        modifier = Modifier.clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { menuExpanded = true }
+                        )
+                    ) {
+                        CustomMenuIcon()
+                    }
+
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Terms of Service") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.Description, contentDescription = null)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenTerms()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Privacy Policy") },
+                            leadingIcon = {
+                                Icon(Icons.Filled.PrivacyTip, contentDescription = null)
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                onOpenPrivacy()
+                            }
+                        )
+                    }
+                }
             }
         }
 
@@ -190,7 +269,7 @@ fun ProfileScreen(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
 
             me?.username?.let {
@@ -199,7 +278,7 @@ fun ProfileScreen(
                     color = CallinColors.TextSecondary,
                     fontSize = 14.sp,
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    textAlign = TextAlign.Center
                 )
             }
 
@@ -210,7 +289,7 @@ fun ProfileScreen(
                 color = CallinColors.TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                textAlign = TextAlign.Center
             )
         }
 
@@ -228,7 +307,7 @@ fun ProfileScreen(
             },
             enabled = !isSigningOut,
             shape = RoundedCornerShape(28.dp),
-            border = androidx.compose.foundation.BorderStroke(
+            border = BorderStroke(
                 1.dp,
                 CallinColors.Danger.copy(alpha = 0.6f)
             ),
