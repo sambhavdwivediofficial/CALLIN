@@ -1,10 +1,8 @@
 package com.sambhavdwivedi.callin.ui.home
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,10 +18,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
-import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PrivacyTip
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.ButtonDefaults
@@ -45,7 +41,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
@@ -55,11 +50,6 @@ import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
 import kotlinx.coroutines.launch
 
-/**
- * Profile tab. The header row (scan QR / my QR / notifications /
- * menu) keeps the exact layout that was already placed here — each
- * icon just gets a click target wired to a real destination now.
- */
 @Composable
 fun ProfileScreen(
     container: AppContainer,
@@ -68,7 +58,7 @@ fun ProfileScreen(
     onOpenScanQr: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenTerms: () -> Unit,
-    onOpenPrivacy: () -> Unit,
+    onOpenPrivacy: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
 
@@ -122,67 +112,43 @@ fun ProfileScreen(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onOpenScanQr
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.QrCodeScanner,
-                        contentDescription = "Scan QR",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.QrCodeScanner,
+                    contentDescription = "Scan QR",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable(onClick = onOpenScanQr)
+                )
 
                 Spacer(Modifier.width(16.dp))
 
-                Box(
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onOpenMyQr
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.QrCode,
-                        contentDescription = "QR Code",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.QrCode,
+                    contentDescription = "QR Code",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable(onClick = onOpenMyQr)
+                )
 
                 Spacer(Modifier.width(16.dp))
 
-                Box(
-                    modifier = Modifier.clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onOpenNotifications
-                    )
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.NotificationsNone,
-                        contentDescription = "Notifications",
-                        tint = Color.White,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Filled.NotificationsNone,
+                    contentDescription = "Notifications",
+                    tint = Color.White,
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable(onClick = onOpenNotifications)
+                )
 
                 Spacer(Modifier.width(16.dp))
 
                 Box {
-                    Box(
-                        modifier = Modifier.clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { menuExpanded = true }
-                        )
-                    ) {
-                        CustomMenuIcon()
-                    }
+                    CustomMenuIcon(
+                        modifier = Modifier.clickable { menuExpanded = true }
+                    )
 
                     DropdownMenu(
                         expanded = menuExpanded,
@@ -190,9 +156,6 @@ fun ProfileScreen(
                     ) {
                         DropdownMenuItem(
                             text = { Text("Terms of Service") },
-                            leadingIcon = {
-                                Icon(Icons.Filled.Description, contentDescription = null)
-                            },
                             onClick = {
                                 menuExpanded = false
                                 onOpenTerms()
@@ -200,9 +163,6 @@ fun ProfileScreen(
                         )
                         DropdownMenuItem(
                             text = { Text("Privacy Policy") },
-                            leadingIcon = {
-                                Icon(Icons.Filled.PrivacyTip, contentDescription = null)
-                            },
                             onClick = {
                                 menuExpanded = false
                                 onOpenPrivacy()
@@ -269,7 +229,7 @@ fun ProfileScreen(
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 20.sp,
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
 
             me?.username?.let {
@@ -278,7 +238,7 @@ fun ProfileScreen(
                     color = CallinColors.TextSecondary,
                     fontSize = 14.sp,
                     modifier = Modifier.fillMaxWidth(),
-                    textAlign = TextAlign.Center
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
 
@@ -289,7 +249,7 @@ fun ProfileScreen(
                 color = CallinColors.TextSecondary,
                 fontSize = 13.sp,
                 modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center
             )
         }
 
@@ -307,7 +267,7 @@ fun ProfileScreen(
             },
             enabled = !isSigningOut,
             shape = RoundedCornerShape(28.dp),
-            border = BorderStroke(
+            border = androidx.compose.foundation.BorderStroke(
                 1.dp,
                 CallinColors.Danger.copy(alpha = 0.6f)
             ),
@@ -344,11 +304,11 @@ fun ProfileScreen(
 }
 
 @Composable
-private fun CustomMenuIcon() {
+private fun CustomMenuIcon(modifier: Modifier = Modifier) {
     Column(
         verticalArrangement = Arrangement.spacedBy(3.5.dp),
         horizontalAlignment = Alignment.Start,
-        modifier = Modifier.width(24.dp)
+        modifier = modifier.width(24.dp)
     ) {
         Box(
             modifier = Modifier

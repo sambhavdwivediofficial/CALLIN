@@ -16,7 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -34,6 +34,18 @@ private enum class HomeTab(val label: String) {
  * and Profile. This replaces the placeholder Welcome screen; the
  * tabs themselves are plain local state (no nested nav graph) since
  * none of them need deep linking yet.
+ *
+ * selectedTab uses rememberSaveable, not remember: HomeScreen is a
+ * single NavHost destination, and Navigation Compose disposes and
+ * re-creates a destination's composition each time another
+ * destination is pushed on top of it and then popped back to (e.g.
+ * opening the QR screen from the Profile tab, then coming back with
+ * the system back gesture). Plain `remember` state does not survive
+ * that — it would silently reset back to the Contacts tab every
+ * time. rememberSaveable persists across exactly that kind of
+ * recreation, via the SaveableStateHolder Navigation Compose already
+ * scopes to each back-stack entry, so the user lands back on
+ * whichever tab they actually left from.
  */
 @Composable
 fun HomeScreen(
@@ -43,9 +55,9 @@ fun HomeScreen(
     onOpenScanQr: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenTerms: () -> Unit,
-    onOpenPrivacy: () -> Unit,
+    onOpenPrivacy: () -> Unit
 ) {
-    var selectedTab by remember { mutableStateOf(HomeTab.Contacts) }
+    var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Contacts) }
 
     Scaffold(
         containerColor = CallinColors.Background,
@@ -90,7 +102,7 @@ fun HomeScreen(
                     onOpenScanQr = onOpenScanQr,
                     onOpenNotifications = onOpenNotifications,
                     onOpenTerms = onOpenTerms,
-                    onOpenPrivacy = onOpenPrivacy,
+                    onOpenPrivacy = onOpenPrivacy
                 )
             }
         }
@@ -103,5 +115,6 @@ private fun homeNavItemColors() = NavigationBarItemDefaults.colors(
     selectedTextColor = CallinColors.TextPrimary,
     unselectedIconColor = CallinColors.TextSecondary,
     unselectedTextColor = CallinColors.TextSecondary,
+//    indicatorColor = CallinColors.TextSecondary.copy(alpha = 0.16f)
     indicatorColor = Color(0xFF151D2A)
 )
