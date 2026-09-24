@@ -39,11 +39,11 @@ private enum class HomeTab(val label: String) {
 fun HomeScreen(
     container: AppContainer,
     onSignOut: () -> Unit,
-    onShowQr: () -> Unit,
-    onScanQr: () -> Unit,
+    onOpenMyQr: () -> Unit,
+    onOpenScanQr: () -> Unit,
     onOpenNotifications: () -> Unit,
     onOpenTerms: () -> Unit,
-    onOpenPrivacy: () -> Unit
+    onOpenPrivacy: () -> Unit,
 ) {
     var selectedTab by remember { mutableStateOf(HomeTab.Contacts) }
 
@@ -86,11 +86,11 @@ fun HomeScreen(
                 HomeTab.Profile -> ProfileScreen(
                     container = container,
                     onSignOut = onSignOut,
-                    onShowQr = onShowQr,
-                    onScanQr = onScanQr,
+                    onOpenMyQr = onOpenMyQr,
+                    onOpenScanQr = onOpenScanQr,
                     onOpenNotifications = onOpenNotifications,
                     onOpenTerms = onOpenTerms,
-                    onOpenPrivacy = onOpenPrivacy
+                    onOpenPrivacy = onOpenPrivacy,
                 )
             }
         }
@@ -103,6 +103,5 @@ private fun homeNavItemColors() = NavigationBarItemDefaults.colors(
     selectedTextColor = CallinColors.TextPrimary,
     unselectedIconColor = CallinColors.TextSecondary,
     unselectedTextColor = CallinColors.TextSecondary,
-//    indicatorColor = CallinColors.TextSecondary.copy(alpha = 0.16f)
     indicatorColor = Color(0xFF151D2A)
 )
