@@ -18,6 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode
@@ -152,7 +153,13 @@ fun ProfileScreen(
 
                     DropdownMenu(
                         expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false }
+                        onDismissRequest = { menuExpanded = false },
+                        containerColor = CallinColors.Background,
+                        modifier = Modifier.border(
+                            width = 0.01.dp,
+                            color = Color.Gray,
+                            shape = RoundedCornerShape(6.dp)
+                        )
                     ) {
                         DropdownMenuItem(
                             text = { Text("Terms of Service") },
@@ -161,6 +168,12 @@ fun ProfileScreen(
                                 onOpenTerms()
                             }
                         )
+
+                        HorizontalDivider(
+                            thickness = 0.3.dp,
+                            color = Color.LightGray
+                        )
+
                         DropdownMenuItem(
                             text = { Text("Privacy Policy") },
                             onClick = {

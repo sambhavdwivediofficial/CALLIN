@@ -611,7 +611,7 @@ fun ContactsScreen(container: AppContainer) {
                                 fontSize = 13.sp,
                                 modifier = Modifier.padding(
                                     horizontal = 20.dp,
-                                    vertical = 6.dp
+                                    vertical = 0.dp
                                 )
                             )
                         }
