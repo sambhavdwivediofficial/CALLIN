@@ -11,6 +11,7 @@ txt
 # Go
 Callin-Go/bin/
 Callin-Go/tmp/
+Callin-Web
 *.exe
 *.test
 *.out
