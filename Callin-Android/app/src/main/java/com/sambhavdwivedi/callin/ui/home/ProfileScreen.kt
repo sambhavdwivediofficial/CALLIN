@@ -260,6 +260,7 @@ fun ProfileScreen(
                 isSigningOut = true
 
                 scope.launch {
+                    container.signalingClient.stop()
                     container.authRepository.logout()
                     isSigningOut = false
                     onSignOut()

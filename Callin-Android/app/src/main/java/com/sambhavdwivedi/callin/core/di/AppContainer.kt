@@ -2,6 +2,7 @@ package com.sambhavdwivedi.callin.core.di
 
 import android.content.Context
 import com.sambhavdwivedi.callin.core.network.RetrofitProvider
+import com.sambhavdwivedi.callin.core.network.SignalingClient
 import com.sambhavdwivedi.callin.core.network.TokenStore
 import com.sambhavdwivedi.callin.data.remote.AuthApi
 import com.sambhavdwivedi.callin.data.remote.ConnectionApi
@@ -10,10 +11,6 @@ import com.sambhavdwivedi.callin.data.repository.AuthRepository
 import com.sambhavdwivedi.callin.data.repository.ConnectionRepository
 import com.sambhavdwivedi.callin.data.repository.UserRepository
 
-/**
- * A small hand-rolled dependency container. CALLIN is not big enough
- * yet to need Hilt/Dagger — this keeps things simple and explicit.
- */
 class AppContainer(context: Context) {
     val tokenStore = TokenStore(context.applicationContext)
 
@@ -25,4 +22,9 @@ class AppContainer(context: Context) {
     val authRepository = AuthRepository(authApi, tokenStore)
     val userRepository = UserRepository(userApi)
     val connectionRepository = ConnectionRepository(connectionApi)
+
+    // Signaling: one socket for the whole app process. Start it once
+    // the user is logged in (LoginScreen / CallinNavHost after auth
+    // check), stop it on sign-out.
+    val signalingClient = SignalingClient(tokenStore)
 }

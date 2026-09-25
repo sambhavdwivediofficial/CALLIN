@@ -63,6 +63,7 @@ fun CallinNavHost() {
         sessionState = if (token.isNullOrBlank()) {
             SessionState.LoggedOut
         } else if (container.tokenStore.getProfileCompleted()) {
+            container.signalingClient.start()
             SessionState.LoggedIn
         } else {
             SessionState.NeedsProfile

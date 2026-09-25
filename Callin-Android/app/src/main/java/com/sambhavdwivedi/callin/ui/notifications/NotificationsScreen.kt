@@ -15,22 +15,20 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -59,8 +57,8 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
     val respondingIds = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(Unit) {
-        container.connectionRepository.ending()
-            .onSuccess { requests.addAll(it) }
+        container.connectionRepository.refreshPending()
+            .onSuccess { requests.clear(); requests.addAll(it) }
             .onFailure { errorMessage = it.message ?: "Could not load requests." }
         isLoading = false
     }
@@ -70,7 +68,6 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
         scope.launch {
             container.connectionRepository.respond(request.id, accept)
                 .onSuccess { requests.remove(request) }
-                .onFailure { /* leave the row in place so the user can retry */ }
             respondingIds.remove(request.id)
         }
     }
@@ -105,57 +102,34 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
             }
 
             when {
-                isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        PulseBarsLoader(barColor = CallinColors.TextSecondary)
-                    }
+                isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    PulseBarsLoader(barColor = CallinColors.TextSecondary)
                 }
-
-                errorMessage != null -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = errorMessage!!,
-                            color = CallinColors.TextSecondary,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
+                errorMessage != null -> Box(
+                    Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(errorMessage!!, color = CallinColors.TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
+                }
+                requests.isEmpty() -> Box(
+                    Modifier.fillMaxSize().padding(32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "No pending connection requests.",
+                        color = CallinColors.TextSecondary,
+                        fontSize = 14.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    items(items = requests, key = { it.id }) { request ->
+                        RequestRow(
+                            request = request,
+                            isResponding = respondingIds.contains(request.id),
+                            onAccept = { respond(request, true) },
+                            onReject = { respond(request, false) }
                         )
-                    }
-                }
-
-                requests.isEmpty() -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(32.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "No pending connection requests.",
-                            color = CallinColors.TextSecondary,
-                            fontSize = 14.sp,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-
-                else -> {
-                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                        items(items = requests, key = { it.id }) { request ->
-                            RequestRow(
-                                request = request,
-                                isResponding = respondingIds.contains(request.id),
-                                onAccept = { respond(request, true) },
-                                onReject = { respond(request, false) }
-                            )
-                        }
                     }
                 }
             }
@@ -173,12 +147,12 @@ private fun RequestRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .size(48.dp)
+                .size(46.dp)
                 .clip(CircleShape)
                 .background(CallinColors.Background)
                 .border(1.dp, CallinColors.TextSecondary, CircleShape),
@@ -188,17 +162,11 @@ private fun RequestRow(
                 AsyncImage(
                     model = request.from_avatar_url,
                     contentDescription = null,
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape),
+                    modifier = Modifier.size(46.dp).clip(CircleShape),
                     contentScale = ContentScale.Crop
                 )
             } else {
-                Icon(
-                    imageVector = Icons.Filled.Person,
-                    contentDescription = null,
-                    tint = CallinColors.TextSecondary
-                )
+                Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary)
             }
         }
 
@@ -209,36 +177,33 @@ private fun RequestRow(
                 text = request.from_display_name ?: request.from_username,
                 color = CallinColors.TextPrimary,
                 fontWeight = FontWeight.Medium,
-                fontSize = 16.sp
+                fontSize = 15.sp
             )
             Text(
                 text = "@${request.from_username}",
                 color = CallinColors.TextSecondary,
-                fontSize = 13.sp
+                fontSize = 12.sp
             )
         }
 
         if (isResponding) {
             PulseBarsLoader(size = 22.dp, barColor = CallinColors.TextSecondary)
         } else {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(
-                    onClick = onReject,
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = CallinColors.Danger),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CallinColors.Danger.copy(alpha = 0.5f))
+            IconButton(onClick = onReject) {
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).background(CallinColors.Danger.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Decline", fontSize = 13.sp)
+                    Icon(Icons.Filled.Close, contentDescription = "Decline", tint = CallinColors.Danger, modifier = Modifier.size(16.dp))
                 }
-
-                Spacer(Modifier.width(8.dp))
-
-                Button(
-                    onClick = onAccept,
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2478D4))
+            }
+            Spacer(Modifier.width(6.dp))
+            IconButton(onClick = onAccept) {
+                Box(
+                    Modifier.size(30.dp).clip(CircleShape).background(CallinColors.Success.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Text("Accept", fontSize = 13.sp)
+                    Icon(Icons.Filled.Check, contentDescription = "Accept", tint = CallinColors.Success, modifier = Modifier.size(16.dp))
                 }
             }
         }
