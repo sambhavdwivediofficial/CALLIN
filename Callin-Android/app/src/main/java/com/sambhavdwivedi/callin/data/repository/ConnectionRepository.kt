@@ -14,19 +14,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * Wraps the connection-request flow and keeps in-memory caches of
- * the caller's accepted connections, pending incoming requests, and
- * the local respond-history log. AppContainer holds one instance
- * for the whole app process, so Contacts / Profile / Notifications
- * all share and update together live.
- *
- * [pendingMutex] serializes every read (refreshPending) against
- * every write (respond): without it, a background poll that lands
- * in the middle of responding to a request can fetch the server's
- * still-pending list and blindly overwrite the optimistic removal,
- * making the row flicker back — this is what fixes that.
- */
 class ConnectionRepository(
     private val api: ConnectionApi,
     private val historyStore: NotificationHistoryStore
@@ -46,6 +33,11 @@ class ConnectionRepository(
         _history.value = historyStore.getAll()
     }
 
+    suspend fun clearHistory() {
+        historyStore.clearAll()
+        _history.value = emptyList()
+    }
+
     suspend fun sendRequest(username: String): Result<String> =
         runCatching { api.sendRequest(SendConnectionRequest(username)).status }
             .onSuccess { status -> if (status == "accepted") refreshConnections() }
@@ -59,10 +51,6 @@ class ConnectionRepository(
             .onSuccess { _pendingRequests.value = it }
     }
 
-    /** Takes the full request (not just its id) so a successful
-     * response can be recorded into local history with the sender's
-     * name/avatar — those aren't available once it's gone from the
-     * pending list. */
     suspend fun respond(request: ConnectionRequestDto, accept: Boolean): Result<Unit> = pendingMutex.withLock {
         _pendingRequests.update { current -> current?.filterNot { it.id == request.id } }
 
@@ -88,7 +76,6 @@ class ConnectionRepository(
                 _history.value = historyStore.getAll()
             }
             .onFailure {
-                // Server never actually processed it — put it back.
                 _pendingRequests.update { current -> (current ?: emptyList()) + request }
             }
 

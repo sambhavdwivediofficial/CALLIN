@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -143,15 +145,21 @@ fun ProfileScreen(
 
                 Spacer(Modifier.width(16.dp))
 
-                Box {
+                Box(
+                    modifier = Modifier
+                        .size(26.dp)
+                        .clickable(onClick = onOpenNotifications),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         imageVector = Icons.Filled.NotificationsNone,
                         contentDescription = "Notifications",
                         tint = Color.White,
-                        modifier = Modifier.size(26.dp).clickable(onClick = onOpenNotifications)
+                        modifier = Modifier.fillMaxSize()
                     )
+
                     if (hasPendingRequests) {
-                        GlowingDot(modifier = Modifier.align(Alignment.TopEnd))
+                        PendingNotificationFill()
                     }
                 }
 
@@ -283,22 +291,32 @@ fun ProfileScreen(
 
 /** Small pulsing blue dot, top-right of the bell, while requests are pending. */
 @Composable
-private fun GlowingDot(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "dot_glow")
-    val glow by transition.animateFloat(
-        initialValue = 0.4f,
+private fun PendingNotificationFill() {
+    val transition = rememberInfiniteTransition(label = "notification_fill")
+
+    val scale by transition.animateFloat(
+        initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(900, easing = LinearEasing),
+            animation = tween(
+                durationMillis = 550,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing
+            ),
             repeatMode = RepeatMode.Reverse
         ),
-        label = "dot_glow_alpha"
+        label = "notification_fill_scale"
     )
 
-    Box(
-        modifier = modifier
-            .size(10.dp)
-            .background(Color(0xFF2E90FF).copy(alpha = glow), CircleShape)
+    Icon(
+        imageVector = Icons.Filled.Notifications,
+        contentDescription = null,
+        tint = Color.White,
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
     )
 }
 

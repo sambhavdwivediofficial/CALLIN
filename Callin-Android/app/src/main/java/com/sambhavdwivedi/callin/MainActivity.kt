@@ -65,23 +65,29 @@ class MainActivity : ComponentActivity() {
 fun AppRoot() {
     var showSplash by remember { mutableStateOf(true) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
     LaunchedEffect(Unit) {
         val container = (context.applicationContext as com.sambhavdwivedi.callin.CallinApplication).container
         val token = container.tokenStore.getAccessToken()
         if (!token.isNullOrBlank()) {
+            val imageLoader = coil.Coil.imageLoader(context)
+            fun warm(url: String?) {
+                if (url.isNullOrBlank()) return
+                imageLoader.enqueue(coil.request.ImageRequest.Builder(context).data(url).build())
+            }
+
             kotlinx.coroutines.coroutineScope {
                 launch {
-                    container.userRepository.getMe().onSuccess { me ->
-                        me.avatar_url?.let { url ->
-                            val request = coil.request.ImageRequest.Builder(context)
-                                .data(url)
-                                .build()
-                            coil.Coil.imageLoader(context).enqueue(request)
-                        }
-                    }
+                    container.userRepository.getMe().onSuccess { warm(it.avatar_url) }
                 }
-                launch { container.connectionRepository.refreshConnections() }
-                launch { container.connectionRepository.refreshPending() }
+                launch {
+                    container.connectionRepository.refreshConnections()
+                        .onSuccess { list -> list.forEach { warm(it.avatar_url) } }
+                }
+                launch {
+                    container.connectionRepository.refreshPending()
+                        .onSuccess { list -> list.forEach { warm(it.from_avatar_url) } }
+                }
                 launch { container.connectionRepository.refreshHistory() }
             }
         }

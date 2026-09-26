@@ -59,4 +59,8 @@ class NotificationHistoryStore(private val context: Context) {
         val raw = json.encodeToString(entries)
         context.notificationHistoryDataStore.edit { it[key] = raw }
     }
+
+    suspend fun clearAll() {
+        persist(emptyList())
+    }
 }
