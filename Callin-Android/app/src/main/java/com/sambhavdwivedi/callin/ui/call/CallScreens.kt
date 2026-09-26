@@ -98,7 +98,7 @@ fun CallRoute(container: AppContainer, onFinished: () -> Unit) {
             startedAtMillis = null,
             isMuted = false,
             isSpeakerOn = true,
-            showMute = false,
+            showMute = true,
             onToggleMute = {},
             onToggleSpeaker = { container.callRepository.toggleSpeaker() },
             onEnd = { container.callRepository.cancelCall() }
