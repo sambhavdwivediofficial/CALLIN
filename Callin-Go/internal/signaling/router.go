@@ -142,6 +142,7 @@ func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 	r.hub.SendToUser(other, out)
+	r.hub.SendToUser(c.UserID, out)
 }
 
 // forward relays WebRTC negotiation messages (offer/answer/ICE)
