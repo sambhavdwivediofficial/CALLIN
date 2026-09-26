@@ -1,6 +1,5 @@
 package com.sambhavdwivedi.callin.ui.home
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -192,7 +191,7 @@ fun ProfileScreen(
             }
         }
 
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(40.dp))
 
         if (isLoading && me == null) {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {

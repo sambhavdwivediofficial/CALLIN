@@ -1,10 +1,9 @@
 package com.sambhavdwivedi.callin.ui.notifications
 
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -86,7 +85,7 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
     val items = remember { mutableStateListOf<NotifItem>() }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val respondingIds = remember { mutableStateListOf<String>() }
+    var respondingId by remember { mutableStateOf<String?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
 
     // One-time initial load: history (already-answered log) + the
@@ -95,9 +94,16 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
     // requests) or mutated in place (a response) — never rebuilt.
     LaunchedEffect(Unit) {
         container.connectionRepository.refreshHistory()
+
         val pendingResult = container.connectionRepository.refreshPending()
-        if (pendingResult.isFailure && container.connectionRepository.pendingRequests.value == null) {
-            errorMessage = pendingResult.exceptionOrNull()?.message ?: "Could not load requests."
+
+        if (
+            pendingResult.isFailure &&
+            container.connectionRepository.pendingRequests.value == null
+        ) {
+            errorMessage =
+                pendingResult.exceptionOrNull()?.message
+                    ?: "Could not load requests."
         }
 
         val historyItems = container.connectionRepository.history.value.map { entry ->
@@ -108,23 +114,33 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                 fromAvatarUrl = entry.fromAvatarUrl,
                 sortKey = entry.respondedAtMillis,
                 originalRequest = null,
-                initialStatus = if (entry.accepted) NotifStatus.ACCEPTED else NotifStatus.REJECTED
-            )
-        }
-        val pendingItems = container.connectionRepository.pendingRequests.value.orEmpty().map { req ->
-            NotifItem(
-                requestId = req.id,
-                fromUsername = req.from_username,
-                fromDisplayName = req.from_display_name,
-                fromAvatarUrl = req.from_avatar_url,
-                sortKey = parseIsoMillis(req.created_at),
-                originalRequest = req,
-                initialStatus = NotifStatus.PENDING
+                initialStatus = if (entry.accepted) {
+                    NotifStatus.ACCEPTED
+                } else {
+                    NotifStatus.REJECTED
+                }
             )
         }
 
+        val pendingItems =
+            container.connectionRepository.pendingRequests.value.orEmpty().map { req ->
+                NotifItem(
+                    requestId = req.id,
+                    fromUsername = req.from_username,
+                    fromDisplayName = req.from_display_name,
+                    fromAvatarUrl = req.from_avatar_url,
+                    sortKey = parseIsoMillis(req.created_at),
+                    originalRequest = req,
+                    initialStatus = NotifStatus.PENDING
+                )
+            }
+
         items.clear()
-        items.addAll((historyItems + pendingItems).sortedByDescending { it.sortKey })
+        items.addAll(
+            (historyItems + pendingItems)
+                .sortedByDescending { it.sortKey }
+        )
+
         isLoading = false
     }
 
@@ -135,42 +151,77 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         while (true) {
             delay(4000)
-            container.connectionRepository.refreshPending().onSuccess { serverPending ->
-                val existingIds = items.map { it.requestId }.toSet()
-                val fresh = serverPending.filter { it.id !in existingIds }
-                if (fresh.isNotEmpty()) {
-                    val newItems = fresh.map { req ->
-                        NotifItem(
-                            requestId = req.id,
-                            fromUsername = req.from_username,
-                            fromDisplayName = req.from_display_name,
-                            fromAvatarUrl = req.from_avatar_url,
-                            sortKey = parseIsoMillis(req.created_at),
-                            originalRequest = req,
-                            initialStatus = NotifStatus.PENDING
+
+            container.connectionRepository.refreshPending()
+                .onSuccess { serverPending ->
+
+                    val existingIds =
+                        items.map { it.requestId }.toSet()
+
+                    val fresh =
+                        serverPending.filter { it.id !in existingIds }
+
+                    if (fresh.isNotEmpty()) {
+                        val newItems = fresh.map { req ->
+                            NotifItem(
+                                requestId = req.id,
+                                fromUsername = req.from_username,
+                                fromDisplayName = req.from_display_name,
+                                fromAvatarUrl = req.from_avatar_url,
+                                sortKey = parseIsoMillis(req.created_at),
+                                originalRequest = req,
+                                initialStatus = NotifStatus.PENDING
+                            )
+                        }
+
+                        items.addAll(
+                            0,
+                            newItems.sortedByDescending { it.sortKey }
                         )
                     }
-                    items.addAll(0, newItems.sortedByDescending { it.sortKey })
                 }
-            }
         }
     }
 
     fun respond(item: NotifItem, accept: Boolean) {
         val original = item.originalRequest ?: return
-        respondingIds.add(item.requestId)
-        // Flip the status immediately — this alone drives the
-        // crossfade below; the row never moves.
-        item.status = if (accept) NotifStatus.ACCEPTED else NotifStatus.REJECTED
+
+        // Only one response can be processed at a time.
+        if (respondingId != null) return
+
+        // Remember exactly which row is currently responding.
+        respondingId = item.requestId
+
         scope.launch {
-            container.connectionRepository.respond(original, accept)
-                .onFailure { item.status = NotifStatus.PENDING }
-            respondingIds.remove(item.requestId)
+            container.connectionRepository
+                .respond(original, accept)
+                .onSuccess {
+                    // Only show final result after the request
+                    // has actually completed successfully.
+                    item.status = if (accept) {
+                        NotifStatus.ACCEPTED
+                    } else {
+                        NotifStatus.REJECTED
+                    }
+                }
+                .onFailure {
+                    // Request failed: return the same row
+                    // back to its pending state.
+                    item.status = NotifStatus.PENDING
+                }
+
+            // Remove loader only after the request finishes.
+            respondingId = null
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(CallinColors.Background)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CallinColors.Background)
+    ) {
         Column(modifier = Modifier.fillMaxSize()) {
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -179,8 +230,13 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color.White
+                    )
                 }
+
                 Text(
                     text = "Notifications",
                     color = Color.White,
@@ -195,44 +251,94 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                     modifier = Modifier
                         .padding(end = 8.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .border(1.dp, Color.White.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                        .clickable { showClearConfirm = true }
-                        .padding(horizontal = 16.dp, vertical = 5.dp),
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = 0.25f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable {
+                            showClearConfirm = true
+                        }
+                        .padding(
+                            horizontal = 16.dp,
+                            vertical = 5.dp
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(text = "Clear", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    Text(
+                        text = "Clear",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
 
             when {
-                isLoading && items.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    PulseBarsLoader(barColor = CallinColors.TextSecondary)
-                }
-                errorMessage != null && items.isEmpty() -> Box(
-                    Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(errorMessage!!, color = CallinColors.TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
-                }
-                items.isEmpty() -> Box(
-                    Modifier.fillMaxSize().padding(32.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "No notifications yet.",
-                        color = CallinColors.TextSecondary,
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center
-                    )
-                }
-                else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(items = items, key = { it.requestId }) { item ->
-                        NotifRow(
-                            item = item,
-                            isResponding = respondingIds.contains(item.requestId),
-                            onAccept = { respond(item, true) },
-                            onReject = { respond(item, false) }
+                isLoading && items.isEmpty() -> {
+                    Box(
+                        Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PulseBarsLoader(
+                            barColor = CallinColors.TextSecondary
                         )
+                    }
+                }
+
+                errorMessage != null && items.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            errorMessage!!,
+                            color = CallinColors.TextSecondary,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                items.isEmpty() -> {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(32.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            "No notifications yet.",
+                            color = CallinColors.TextSecondary,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        items(
+                            items = items,
+                            key = { it.requestId }
+                        ) { item ->
+
+                            NotifRow(
+                                item = item,
+                                isResponding =
+                                    respondingId == item.requestId,
+                                onAccept = {
+                                    respond(item, true)
+                                },
+                                onReject = {
+                                    respond(item, false)
+                                }
+                            )
+                        }
                     }
                 }
             }
@@ -240,23 +346,47 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
 
         if (showClearConfirm) {
             AlertDialog(
-                onDismissRequest = { showClearConfirm = false },
-                title = { Text("Clear notifications?") },
-                text = { Text("This removes your notification history from this device. Pending requests you haven't responded to are not affected.") },
+                onDismissRequest = {
+                    showClearConfirm = false
+                },
+                title = {
+                    Text("Clear notifications?")
+                },
+                text = {
+                    Text(
+                        "This removes your notification history from this device. Pending requests you haven't responded to are not affected."
+                    )
+                },
                 confirmButton = {
-                    TextButton(onClick = {
-                        showClearConfirm = false
-                        scope.launch {
-                            container.connectionRepository.clearHistory()
-                            items.removeAll { it.status != NotifStatus.PENDING }
+                    TextButton(
+                        onClick = {
+                            showClearConfirm = false
+
+                            scope.launch {
+                                container.connectionRepository.clearHistory()
+
+                                items.removeAll {
+                                    it.status != NotifStatus.PENDING
+                                }
+                            }
                         }
-                    }) {
-                        Text("Clear", color = CallinColors.Danger)
+                    ) {
+                        Text(
+                            "Clear",
+                            color = CallinColors.Danger
+                        )
                     }
                 },
                 dismissButton = {
-                    TextButton(onClick = { showClearConfirm = false }) {
-                        Text("Cancel", color = CallinColors.TextSecondary)
+                    TextButton(
+                        onClick = {
+                            showClearConfirm = false
+                        }
+                    ) {
+                        Text(
+                            "Cancel",
+                            color = CallinColors.TextSecondary
+                        )
                     }
                 },
                 containerColor = CallinColors.Background,
@@ -274,18 +404,28 @@ private fun NotifAvatar(avatarUrl: String?) {
             .size(46.dp)
             .clip(CircleShape)
             .background(CallinColors.Background)
-            .border(1.dp, CallinColors.TextSecondary, CircleShape),
+            .border(
+                1.dp,
+                CallinColors.TextSecondary,
+                CircleShape
+            ),
         contentAlignment = Alignment.Center
     ) {
         if (!avatarUrl.isNullOrBlank()) {
             AsyncImage(
                 model = avatarUrl,
                 contentDescription = null,
-                modifier = Modifier.size(46.dp).clip(CircleShape),
+                modifier = Modifier
+                    .size(46.dp)
+                    .clip(CircleShape),
                 contentScale = ContentScale.Crop
             )
         } else {
-            Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary)
+            Icon(
+                Icons.Filled.Person,
+                contentDescription = null,
+                tint = CallinColors.TextSecondary
+            )
         }
     }
 }
@@ -298,52 +438,127 @@ private fun NotifRow(
     onReject: () -> Unit,
 ) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 20.dp,
+                vertical = 14.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         NotifAvatar(item.fromAvatarUrl)
+
         Spacer(Modifier.width(14.dp))
-        Column(modifier = Modifier.weight(1f)) {
+
+        Column(
+            modifier = Modifier.weight(1f)
+        ) {
             Text(
                 text = item.fromDisplayName ?: item.fromUsername,
                 color = CallinColors.TextPrimary,
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp
             )
-            Text(text = "@${item.fromUsername}", color = CallinColors.TextSecondary, fontSize = 12.sp)
+
+            Text(
+                text = "@${item.fromUsername}",
+                color = CallinColors.TextSecondary,
+                fontSize = 12.sp
+            )
         }
 
-        val displayKey = when {
-            isResponding -> "loading"
-            item.status == NotifStatus.PENDING -> "pending"
-            item.status == NotifStatus.ACCEPTED -> "accepted"
-            else -> "rejected"
-        }
+        // Fixed-width action area.
+        // This keeps the Reject / Loader / Accept positions
+        // stable and prevents layout jumping.
+        Box(
+            modifier = Modifier.width(70.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            when (item.status) {
 
-        Crossfade(targetState = displayKey, animationSpec = tween(200), label = "notif_trailing") { key ->
-            when (key) {
-                "loading" -> PulseBarsLoader(size = 22.dp, barColor = CallinColors.TextSecondary)
-                "pending" -> Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onReject) {
-                        Box(
-                            Modifier.size(30.dp).clip(CircleShape).background(CallinColors.Danger.copy(alpha = 0.18f)),
-                            contentAlignment = Alignment.Center
+                NotifStatus.PENDING -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+
+                        IconButton(
+                            onClick = onReject,
+                            enabled = !isResponding
                         ) {
-                            Icon(Icons.Filled.Close, contentDescription = "Decline", tint = CallinColors.Danger, modifier = Modifier.size(16.dp))
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        CallinColors.Danger.copy(
+                                            alpha = 0.18f
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "Decline",
+                                    tint = CallinColors.Danger,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
-                    }
-                    Spacer(Modifier.width(6.dp))
-                    IconButton(onClick = onAccept) {
+
+                        // EXACT CENTER SLOT
                         Box(
-                            Modifier.size(30.dp).clip(CircleShape).background(CallinColors.Success.copy(alpha = 0.18f)),
+                            modifier = Modifier.size(24.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            Icon(Icons.Filled.Check, contentDescription = "Accept", tint = CallinColors.Success, modifier = Modifier.size(16.dp))
+                            if (isResponding) {
+                                PulseBarsLoader(
+                                    size = 22.dp,
+                                    barColor = CallinColors.TextSecondary
+                                )
+                            }
+                        }
+
+                        IconButton(
+                            onClick = onAccept,
+                            enabled = !isResponding
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(30.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        CallinColors.Success.copy(
+                                            alpha = 0.18f
+                                        )
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = "Accept",
+                                    tint = CallinColors.Success,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
-                "accepted" -> OutcomePill(text = "Accept", color = CallinColors.Success)
-                else -> OutcomePill(text = "Reject", color = CallinColors.Danger)
+
+                NotifStatus.ACCEPTED -> {
+                    OutcomePill(
+                        text = "Accept",
+                        color = CallinColors.Success
+                    )
+                }
+
+                NotifStatus.REJECTED -> {
+                    OutcomePill(
+                        text = "Reject",
+                        color = CallinColors.Danger
+                    )
+                }
             }
         }
     }
@@ -352,13 +567,24 @@ private fun NotifRow(
 /** Thin, small, rounded-rectangle badge showing the outcome — takes
  * the place of the two action buttons once a request is answered. */
 @Composable
-private fun OutcomePill(text: String, color: Color) {
+private fun OutcomePill(
+    text: String,
+    color: Color
+) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(6.dp))
-            .padding(horizontal = 14.dp, vertical = 6.dp),
+            .padding(
+                horizontal = 14.dp,
+                vertical = 6.dp
+            ),
         contentAlignment = Alignment.Center
     ) {
-        Text(text = text, color = color, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = text,
+            color = color,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
