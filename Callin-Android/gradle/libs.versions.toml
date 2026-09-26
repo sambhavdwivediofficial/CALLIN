@@ -20,8 +20,10 @@ coilCompose = "2.7.0"
 camerax = "1.4.1"
 mlkitBarcodeScanning = "17.3.0"
 zxingCore = "3.5.3"
+webrtc = "1.1.1"
 
 [libraries]
+stream-webrtc = { group = "io.getstream", name = "stream-webrtc-android", version.ref = "webrtc" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }

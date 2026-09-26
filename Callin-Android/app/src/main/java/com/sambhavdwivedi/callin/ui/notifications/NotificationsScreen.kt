@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -253,7 +254,7 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                         .clip(RoundedCornerShape(8.dp))
                         .border(
                             1.dp,
-                            Color.White.copy(alpha = 0.25f),
+                            Color.White,
                             RoundedCornerShape(8.dp)
                         )
                         .clickable {
@@ -471,7 +472,7 @@ private fun NotifRow(
         // This keeps the Reject / Loader / Accept positions
         // stable and prevents layout jumping.
         Box(
-            modifier = Modifier.width(70.dp),
+            modifier = Modifier.width(105.dp),
             contentAlignment = Alignment.Center
         ) {
             when (item.status) {
@@ -548,14 +549,14 @@ private fun NotifRow(
 
                 NotifStatus.ACCEPTED -> {
                     OutcomePill(
-                        text = "Accept",
+                        text = "Accepted",
                         color = CallinColors.Success
                     )
                 }
 
                 NotifStatus.REJECTED -> {
                     OutcomePill(
-                        text = "Reject",
+                        text = "Rejected",
                         color = CallinColors.Danger
                     )
                 }
@@ -573,6 +574,7 @@ private fun OutcomePill(
 ) {
     Box(
         modifier = Modifier
+            .offset(x = (8).dp)
             .clip(RoundedCornerShape(6.dp))
             .padding(
                 horizontal = 14.dp,

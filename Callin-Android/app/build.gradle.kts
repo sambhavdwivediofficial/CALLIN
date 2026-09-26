@@ -54,6 +54,7 @@ dependencies {
     implementation(libs.coil.compose)
 
     // Networking
+    implementation(libs.stream.webrtc)
     implementation(libs.retrofit)
     implementation(libs.retrofit.kotlinx.serialization.converter)
     implementation(libs.okhttp)

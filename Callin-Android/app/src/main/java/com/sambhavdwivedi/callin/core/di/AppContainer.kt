@@ -9,6 +9,7 @@ import com.sambhavdwivedi.callin.data.remote.AuthApi
 import com.sambhavdwivedi.callin.data.remote.ConnectionApi
 import com.sambhavdwivedi.callin.data.remote.UserApi
 import com.sambhavdwivedi.callin.data.repository.AuthRepository
+import com.sambhavdwivedi.callin.data.repository.CallRepository
 import com.sambhavdwivedi.callin.data.repository.ConnectionRepository
 import com.sambhavdwivedi.callin.data.repository.UserRepository
 
@@ -27,4 +28,15 @@ class AppContainer(context: Context) {
     val connectionRepository = ConnectionRepository(connectionApi, notificationHistoryStore)
 
     val signalingClient = SignalingClient(tokenStore)
+
+    val callRepository = CallRepository(
+        context = context.applicationContext,
+        signalingClient = signalingClient,
+        myUserId = { userRepository.me.value?.id },
+        lookupPeer = { peerId ->
+            connectionRepository.connections.value
+                ?.find { it.user_id == peerId }
+                ?.let { Triple(it.username, it.display_name, it.avatar_url) }
+        }
+    )
 }

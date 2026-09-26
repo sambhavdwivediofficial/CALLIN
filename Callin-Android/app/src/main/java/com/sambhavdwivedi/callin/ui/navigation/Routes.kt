@@ -9,4 +9,5 @@ object Routes {
     const val MyQrCode = "my_qr_code"
     const val ScanQrCode = "scan_qr_code"
     const val Notifications = "notifications"
+    const val Call = "call"
 }
