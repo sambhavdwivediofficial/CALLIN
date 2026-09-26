@@ -11,7 +11,16 @@ import java.util.concurrent.TimeUnit
 
 object RetrofitProvider {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    // coerceInputValues: when the backend sends `null` for a field
+    // that has a default (e.g. an empty list), fall back to that
+    // default instead of crashing. Go's json.Marshal emits `null`
+    // for a nil slice, not `[]` — this is what makes
+    // ConnectionsListResponse/PendingRequestsResponse safe to parse
+    // even when the list is empty.
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
 
     fun create(tokenStore: TokenStore): Retrofit {
         lateinit var retrofit: Retrofit

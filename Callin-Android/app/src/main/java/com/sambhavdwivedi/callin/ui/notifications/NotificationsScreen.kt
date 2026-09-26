@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -25,9 +26,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -42,41 +44,70 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.sambhavdwivedi.callin.core.di.AppContainer
+import com.sambhavdwivedi.callin.core.storage.NotificationHistoryEntry
 import com.sambhavdwivedi.callin.data.remote.dto.ConnectionRequestDto
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** One unified feed row: either an actionable pending request, or a
+ * read-only log entry (already accepted/rejected), kept local for
+ * 30 days. Same visual slot either way — only the trailing icon(s)
+ * change from two buttons to one fixed outcome icon. */
+private sealed interface NotifRow {
+    val sortKey: Long
+    data class Pending(val request: ConnectionRequestDto, val createdAtMillis: Long) : NotifRow {
+        override val sortKey get() = createdAtMillis
+    }
+    data class Logged(val entry: NotificationHistoryEntry) : NotifRow {
+        override val sortKey get() = entry.respondedAtMillis
+    }
+}
+
+private fun parseIsoMillis(iso: String): Long =
+    runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrDefault(0L)
 
 @Composable
 fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
 
-    var isLoading by remember { mutableStateOf(true) }
+    val pending by container.connectionRepository.pendingRequests.collectAsState()
+    val history by container.connectionRepository.history.collectAsState()
+    var isLoading by remember { mutableStateOf(pending == null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    val requests = remember { mutableStateListOf<ConnectionRequestDto>() }
     val respondingIds = remember { mutableStateListOf<String>() }
 
     LaunchedEffect(Unit) {
+        container.connectionRepository.refreshHistory()
         container.connectionRepository.refreshPending()
-            .onSuccess { requests.clear(); requests.addAll(it) }
-            .onFailure { errorMessage = it.message ?: "Could not load requests." }
+            .onFailure { if (pending == null) errorMessage = it.message ?: "Could not load requests." }
         isLoading = false
+    }
+
+    // Keeps this screen live while open.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(4000)
+            container.connectionRepository.refreshPending()
+        }
     }
 
     fun respond(request: ConnectionRequestDto, accept: Boolean) {
         respondingIds.add(request.id)
         scope.launch {
-            container.connectionRepository.respond(request.id, accept)
-                .onSuccess { requests.remove(request) }
+            container.connectionRepository.respond(request, accept)
             respondingIds.remove(request.id)
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(CallinColors.Background)
-    ) {
+    val rows: List<NotifRow> = remember(pending, history) {
+        val pendingRows = pending.orEmpty().map { NotifRow.Pending(it, parseIsoMillis(it.created_at)) }
+        val historyRows = history.map { NotifRow.Logged(it) }
+        (pendingRows + historyRows).sortedByDescending { it.sortKey }
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(CallinColors.Background)) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(
                 modifier = Modifier
@@ -86,11 +117,7 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(onClick = onBack) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
-                        tint = Color.White
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
                 }
                 Text(
                     text = "Notifications",
@@ -99,37 +126,70 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
                     fontSize = 18.sp,
                     modifier = Modifier.padding(start = 4.dp)
                 )
+
+                Spacer(modifier = Modifier.weight(1f))
+
+                Box(
+                    modifier = Modifier
+                        .padding(end = 8.dp)
+                        .border(
+                            1.dp,
+                            Color.White.copy(alpha = 0.25f),
+                            RoundedCornerShape(8.dp)
+                        )
+                        
+                        .padding(horizontal = 16.dp, vertical = 5.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Clear",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
             }
 
             when {
-                isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                isLoading && rows.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     PulseBarsLoader(barColor = CallinColors.TextSecondary)
                 }
-                errorMessage != null -> Box(
+                errorMessage != null && rows.isEmpty() -> Box(
                     Modifier.fillMaxSize().padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(errorMessage!!, color = CallinColors.TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
                 }
-                requests.isEmpty() -> Box(
+                rows.isEmpty() -> Box(
                     Modifier.fillMaxSize().padding(32.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "No pending connection requests.",
+                        "No notifications yet.",
                         color = CallinColors.TextSecondary,
                         fontSize = 14.sp,
                         textAlign = TextAlign.Center
                     )
                 }
                 else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    items(items = requests, key = { it.id }) { request ->
-                        RequestRow(
-                            request = request,
-                            isResponding = respondingIds.contains(request.id),
-                            onAccept = { respond(request, true) },
-                            onReject = { respond(request, false) }
-                        )
+                    items(
+                        items = rows,
+                        key = { row ->
+                            when (row) {
+                                is NotifRow.Pending -> "pending_${row.request.id}"
+                                is NotifRow.Logged -> "log_${row.entry.requestId}"
+                            }
+                        }
+                    ) { row ->
+                        when (row) {
+                            is NotifRow.Pending -> PendingRow(
+                                request = row.request,
+                                isResponding = respondingIds.contains(row.request.id),
+                                onAccept = { respond(row.request, true) },
+                                onReject = { respond(row.request, false) }
+                            )
+                            is NotifRow.Logged -> LoggedRow(entry = row.entry)
+                        }
                     }
                 }
             }
@@ -138,40 +198,41 @@ fun NotificationsScreen(container: AppContainer, onBack: () -> Unit) {
 }
 
 @Composable
-private fun RequestRow(
+private fun NotifAvatar(avatarUrl: String?) {
+    Box(
+        modifier = Modifier
+            .size(46.dp)
+            .clip(CircleShape)
+            .background(CallinColors.Background)
+            .border(1.dp, CallinColors.TextSecondary, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (!avatarUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = avatarUrl,
+                contentDescription = null,
+                modifier = Modifier.size(46.dp).clip(CircleShape),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun PendingRow(
     request: ConnectionRequestDto,
     isResponding: Boolean,
     onAccept: () -> Unit,
     onReject: () -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(46.dp)
-                .clip(CircleShape)
-                .background(CallinColors.Background)
-                .border(1.dp, CallinColors.TextSecondary, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!request.from_avatar_url.isNullOrBlank()) {
-                AsyncImage(
-                    model = request.from_avatar_url,
-                    contentDescription = null,
-                    modifier = Modifier.size(46.dp).clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary)
-            }
-        }
-
+        NotifAvatar(request.from_avatar_url)
         Spacer(Modifier.width(14.dp))
-
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = request.from_display_name ?: request.from_username,
@@ -179,11 +240,7 @@ private fun RequestRow(
                 fontWeight = FontWeight.Medium,
                 fontSize = 15.sp
             )
-            Text(
-                text = "@${request.from_username}",
-                color = CallinColors.TextSecondary,
-                fontSize = 12.sp
-            )
+            Text(text = "@${request.from_username}", color = CallinColors.TextSecondary, fontSize = 12.sp)
         }
 
         if (isResponding) {
@@ -206,6 +263,42 @@ private fun RequestRow(
                     Icon(Icons.Filled.Check, contentDescription = "Accept", tint = CallinColors.Success, modifier = Modifier.size(16.dp))
                 }
             }
+        }
+    }
+}
+
+/** Read-only log row: same layout as a pending request, but instead
+ * of two action buttons there's a single icon showing what already
+ * happened. Nothing here is clickable. */
+@Composable
+private fun LoggedRow(entry: NotificationHistoryEntry) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        NotifAvatar(entry.fromAvatarUrl)
+        Spacer(Modifier.width(14.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = entry.fromDisplayName ?: entry.fromUsername,
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.Medium,
+                fontSize = 15.sp
+            )
+            Text(text = "@${entry.fromUsername}", color = CallinColors.TextSecondary, fontSize = 12.sp)
+        }
+
+        val (bg, tint, icon) = if (entry.accepted) {
+            Triple(CallinColors.Success.copy(alpha = 0.18f), CallinColors.Success, Icons.Filled.Check)
+        } else {
+            Triple(CallinColors.Danger.copy(alpha = 0.18f), CallinColors.Danger, Icons.Filled.Close)
+        }
+
+        Box(
+            Modifier.size(30.dp).clip(CircleShape).background(bg),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = if (entry.accepted) "Accepted" else "Declined", tint = tint, modifier = Modifier.size(16.dp))
         }
     }
 }

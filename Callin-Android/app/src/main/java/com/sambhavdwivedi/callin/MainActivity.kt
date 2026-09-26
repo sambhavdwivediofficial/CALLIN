@@ -64,6 +64,28 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppRoot() {
     var showSplash by remember { mutableStateOf(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(Unit) {
+        val container = (context.applicationContext as com.sambhavdwivedi.callin.CallinApplication).container
+        val token = container.tokenStore.getAccessToken()
+        if (!token.isNullOrBlank()) {
+            kotlinx.coroutines.coroutineScope {
+                launch {
+                    container.userRepository.getMe().onSuccess { me ->
+                        me.avatar_url?.let { url ->
+                            val request = coil.request.ImageRequest.Builder(context)
+                                .data(url)
+                                .build()
+                            coil.Coil.imageLoader(context).enqueue(request)
+                        }
+                    }
+                }
+                launch { container.connectionRepository.refreshConnections() }
+                launch { container.connectionRepository.refreshPending() }
+                launch { container.connectionRepository.refreshHistory() }
+            }
+        }
+    }
 
     if (showSplash) {
         SplashScreen(onFinished = { showSplash = false })

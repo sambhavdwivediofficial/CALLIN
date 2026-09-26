@@ -1,5 +1,7 @@
 package com.sambhavdwivedi.callin.data.repository
 
+import com.sambhavdwivedi.callin.core.storage.NotificationHistoryEntry
+import com.sambhavdwivedi.callin.core.storage.NotificationHistoryStore
 import com.sambhavdwivedi.callin.data.remote.ConnectionApi
 import com.sambhavdwivedi.callin.data.remote.dto.ConnectionDto
 import com.sambhavdwivedi.callin.data.remote.dto.ConnectionRequestDto
@@ -9,58 +11,87 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
- * Wraps the connection-request flow and keeps a simple in-memory
- * cache of the caller's accepted connections and pending incoming
- * requests. AppContainer holds one instance of this repository for
- * the whole app process, so every screen that reads [connections] or
- * [pendingRequests] shares the same cache: a screen that has been
- * visited once shows its data instantly on every later visit — no
- * loading spinner — while [refreshConnections] / [refreshPending]
- * keep it current in the background.
+ * Wraps the connection-request flow and keeps in-memory caches of
+ * the caller's accepted connections, pending incoming requests, and
+ * the local respond-history log. AppContainer holds one instance
+ * for the whole app process, so Contacts / Profile / Notifications
+ * all share and update together live.
  *
- * [respond] updates the backend (accept/reject is persisted
- * server-side immediately) and this local cache in the same call —
- * accepting a request removes it from the pending cache and adds the
- * new contact to the connections cache, so Notifications and
- * Contacts both reflect it without either screen needing a manual
- * reload.
+ * [pendingMutex] serializes every read (refreshPending) against
+ * every write (respond): without it, a background poll that lands
+ * in the middle of responding to a request can fetch the server's
+ * still-pending list and blindly overwrite the optimistic removal,
+ * making the row flicker back — this is what fixes that.
  */
-class ConnectionRepository(private val api: ConnectionApi) {
-
+class ConnectionRepository(
+    private val api: ConnectionApi,
+    private val historyStore: NotificationHistoryStore
+) {
     private val _connections = MutableStateFlow<List<ConnectionDto>?>(null)
     val connections: StateFlow<List<ConnectionDto>?> = _connections.asStateFlow()
 
     private val _pendingRequests = MutableStateFlow<List<ConnectionRequestDto>?>(null)
     val pendingRequests: StateFlow<List<ConnectionRequestDto>?> = _pendingRequests.asStateFlow()
 
-    /** Returns the resulting status: "pending" or "accepted" (if the other side already requested you). */
+    private val _history = MutableStateFlow<List<NotificationHistoryEntry>>(emptyList())
+    val history: StateFlow<List<NotificationHistoryEntry>> = _history.asStateFlow()
+
+    private val pendingMutex = Mutex()
+
+    suspend fun refreshHistory() {
+        _history.value = historyStore.getAll()
+    }
+
     suspend fun sendRequest(username: String): Result<String> =
         runCatching { api.sendRequest(SendConnectionRequest(username)).status }
-            .onSuccess { status ->
-                // If the other person had already requested us, the
-                // backend auto-accepts on the spot — refresh so the
-                // new contact appears in Contacts immediately.
-                if (status == "accepted") refreshConnections()
-            }
+            .onSuccess { status -> if (status == "accepted") refreshConnections() }
 
-    /** Fetches the caller's accepted connections from the server and updates the cache. */
     suspend fun refreshConnections(): Result<List<ConnectionDto>> =
         runCatching { api.list().connections }
             .onSuccess { _connections.value = it }
 
-    /** Fetches requests waiting on the caller to respond and updates the cache. */
-    suspend fun refreshPending(): Result<List<ConnectionRequestDto>> =
+    suspend fun refreshPending(): Result<List<ConnectionRequestDto>> = pendingMutex.withLock {
         runCatching { api.pending().requests }
             .onSuccess { _pendingRequests.value = it }
+    }
 
-    suspend fun respond(requestId: String, accept: Boolean): Result<Unit> =
-        runCatching {
-            val response = api.respond(requestId, RespondConnectionRequest(accept))
+    /** Takes the full request (not just its id) so a successful
+     * response can be recorded into local history with the sender's
+     * name/avatar — those aren't available once it's gone from the
+     * pending list. */
+    suspend fun respond(request: ConnectionRequestDto, accept: Boolean): Result<Unit> = pendingMutex.withLock {
+        _pendingRequests.update { current -> current?.filterNot { it.id == request.id } }
+
+        val result = runCatching {
+            val response = api.respond(request.id, RespondConnectionRequest(accept))
             if (!response.isSuccessful) error("Could not respond to request (${response.code()})")
-        }.onSuccess {
-            _pendingRequests.update { current -> current?.filterNot { it.id == requestId } }
-            if (accept) refreshConnections()
         }
+
+        result
+            .onSuccess {
+                if (accept) refreshConnections()
+                historyStore.record(
+                    NotificationHistoryEntry(
+                        requestId = request.id,
+                        fromUserId = request.from_user_id,
+                        fromUsername = request.from_username,
+                        fromDisplayName = request.from_display_name,
+                        fromAvatarUrl = request.from_avatar_url,
+                        accepted = accept,
+                        respondedAtMillis = System.currentTimeMillis()
+                    )
+                )
+                _history.value = historyStore.getAll()
+            }
+            .onFailure {
+                // Server never actually processed it — put it back.
+                _pendingRequests.update { current -> (current ?: emptyList()) + request }
+            }
+
+        result
+    }
 }

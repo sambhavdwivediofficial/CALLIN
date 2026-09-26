@@ -755,11 +755,31 @@ private fun RippleCallIcon(onClick: () -> Unit) {
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = rippleAlpha.value * 0.25f))
-                .then(
-                    Modifier // scale visual via graphicsLayer would be smoother; kept simple here
+                .border(
+                    1.dp,
+                    Color.White.copy(alpha = 0.25f),
+                    CircleShape
                 )
-        )
+                .clickable {
+                    scope.launch {
+                        rippleAlpha.snapTo(1f)
+                        rippleScale.snapTo(0.3f)
+                        rippleScale.animateTo(1.4f, tween(350))
+                    }
+                    scope.launch {
+                        rippleAlpha.animateTo(0f, tween(380))
+                    }
+                    onClick()
+                },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Call,
+                contentDescription = "Call",
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+        }
         Icon(
             imageVector = Icons.Filled.Call,
             contentDescription = "Call",
