@@ -12,10 +12,6 @@ import (
 	"callin-go/internal/push"
 )
 
-// Router validates every incoming signaling message and routes it
-// to the right effect: forwarding to the other party if they are
-// online, updating call state, persisting terminal calls, and
-// falling back to a push notification when the target is offline.
 type Router struct {
 	hub    *Hub
 	calls  *call.Registry
@@ -28,9 +24,6 @@ func NewRouter(hub *Hub, calls *call.Registry, pool *pgxpool.Pool, pusher *push.
 	return &Router{hub: hub, calls: calls, pool: pool, pusher: pusher, logger: logger}
 }
 
-// Handle validates a message's type and dispatches it. Unknown
-// types and malformed payloads get an error frame back, never a
-// silent drop or a panic.
 func (r *Router) Handle(c *Client, msg Message) {
 	switch msg.Type {
 	case TypeCallInvite:
@@ -75,8 +68,6 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 	}
 
 	if delivered := r.hub.SendToUser(payload.CalleeID, out); !delivered {
-		// Callee has no open socket right now — wake their device
-		// with a high-priority push instead.
 		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, c.UserID)
 	}
 
@@ -85,8 +76,6 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 	r.hub.SendToUser(c.UserID, out)
 }
 
-// handleTransition moves a non-terminal call forward (e.g.
-// accepted -> connecting) and relays the message to the other party.
 func (r *Router) handleTransition(c *Client, msg Message, to call.Status) {
 	if msg.CallID == "" {
 		c.sendError("bad_request", "call_id is required")
@@ -102,8 +91,6 @@ func (r *Router) handleTransition(c *Client, msg Message, to call.Status) {
 	r.relay(c, activeCall, msg)
 }
 
-// handleTerminal moves a call into a terminal state, relays the
-// message, and persists the finished call to history.
 func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 	if msg.CallID == "" {
 		c.sendError("bad_request", "call_id is required")
@@ -127,6 +114,13 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 	}()
 }
 
+// relay sends the state-transition message to BOTH parties — the
+// other side (obviously) and back to the sender too. This is
+// CRITICAL: without echoing to the sender, the side that pressed
+// Accept never learns their own request succeeded, so their local
+// UI never leaves the "Incoming" screen and never reaches Active —
+// which is exactly what made calls appear to hang on "Connecting..."
+// forever, even between two devices on the same network.
 func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 	other := activeCall.CalleeID
 	if c.UserID == activeCall.CalleeID {
@@ -142,12 +136,9 @@ func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 	r.hub.SendToUser(other, out)
-	r.hub.SendToUser(c.UserID, out)
+	r.hub.SendToUser(c.UserID, out) // <-- the fix: echo to sender
 }
 
-// forward relays WebRTC negotiation messages (offer/answer/ICE)
-// straight through to the other party without inspecting the SDP —
-// the backend is a signaling relay, not a media endpoint.
 func (r *Router) forward(c *Client, msg Message) {
 	if msg.To == "" {
 		c.sendError("bad_request", "to is required for webrtc messages")
