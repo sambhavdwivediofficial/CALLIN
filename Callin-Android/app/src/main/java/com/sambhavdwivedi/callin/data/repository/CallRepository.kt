@@ -1,24 +1,30 @@
 package com.sambhavdwivedi.callin.data.repository
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
-import android.media.RingtoneManager
-import android.media.ToneGenerator
+import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
+import com.sambhavdwivedi.callin.core.call.CallNotifier
 import com.sambhavdwivedi.callin.core.network.SignalingClient
+import com.sambhavdwivedi.callin.core.ringtone.RingtoneAssets
 import com.sambhavdwivedi.callin.core.signaling.CallInvitePayload
 import com.sambhavdwivedi.callin.core.signaling.IceCandidatePayload
 import com.sambhavdwivedi.callin.core.signaling.SdpPayload
 import com.sambhavdwivedi.callin.core.signaling.SignalingMessage
 import com.sambhavdwivedi.callin.core.signaling.SignalingType
+import com.sambhavdwivedi.callin.core.storage.CallDirection
+import com.sambhavdwivedi.callin.core.storage.RecentCallEntry
+import com.sambhavdwivedi.callin.core.storage.RecentCallsStore
+import com.sambhavdwivedi.callin.core.storage.RingtoneStore
 import com.sambhavdwivedi.callin.core.webrtc.IceServers
 import com.sambhavdwivedi.callin.core.webrtc.WebRtcClient
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,15 +52,20 @@ sealed interface CallUiState {
     data class Ended(val info: CallPeerInfo, val reason: String) : CallUiState
 }
 
+private const val RING_TIMEOUT_MS = 20_000L
+
 class CallRepository(
     context: Context,
     private val signalingClient: SignalingClient,
+    private val ringtoneStore: RingtoneStore,
+    private val recentCallsStore: RecentCallsStore,
     private val myUserId: () -> String?,
     private val lookupPeer: (String) -> Triple<String, String?, String?>?,
 ) {
     private val appContext = context.applicationContext
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val json = Json { ignoreUnknownKeys = true }
+    private val notifier = CallNotifier(appContext)
 
     private val _state = MutableStateFlow<CallUiState>(CallUiState.Idle)
     val state: StateFlow<CallUiState> = _state.asStateFlow()
@@ -62,18 +73,21 @@ class CallRepository(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
-    private val _isSpeakerOn = MutableStateFlow(true)
+    // Real phones start on the earpiece; the speaker only turns on
+    // when the user explicitly taps it — never on by default.
+    private val _isSpeakerOn = MutableStateFlow(false)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
 
     private var webRtc: WebRtcClient? = null
     private var isCaller = false
     private var started = false
+    private var attemptStartedAtMillis = 0L
 
-    // ---- ringback (caller hears "trrr...trrr") and incoming
-    // ringtone + vibration (callee) ----
-    private var ringbackTone: ToneGenerator? = null
+    private var ringbackPlayer: MediaPlayer? = null
     private var ringtonePlayer: MediaPlayer? = null
     private var vibrator: Vibrator? = null
+    private var ringTimeoutJob: Job? = null
+    private var proximityWakeLock: PowerManager.WakeLock? = null
 
     fun start() {
         if (started) return
@@ -85,8 +99,33 @@ class CallRepository(
 
     private fun setState(newState: CallUiState) {
         _state.value = newState
+        notifier.update(newState)
         updateSounds(newState)
+        updateProximityLock(newState)
+        manageRingTimeout(newState)
     }
+
+    // ---- ring timeout: 20s, either side can trigger it ----
+
+    private fun manageRingTimeout(state: CallUiState) {
+        ringTimeoutJob?.cancel()
+        ringTimeoutJob = when (state) {
+            is CallUiState.Outgoing, is CallUiState.Incoming -> scope.launch {
+                delay(RING_TIMEOUT_MS)
+                when (val current = _state.value) {
+                    is CallUiState.Outgoing -> cancelCall()
+                    is CallUiState.Incoming -> {
+                        recordMissedIncoming(current.info)
+                        rejectCall()
+                    }
+                    else -> Unit
+                }
+            }
+            else -> null
+        }
+    }
+
+    // ---- sounds: ringback (caller) / ringtone+vibration (callee) ----
 
     private fun updateSounds(state: CallUiState) {
         when (state) {
@@ -106,55 +145,78 @@ class CallRepository(
     }
 
     private fun startRingback() {
-        if (ringbackTone != null) return
-        ringbackTone = runCatching {
-            ToneGenerator(AudioManager.STREAM_VOICE_CALL, 80).also {
-                it.startTone(ToneGenerator.TONE_SUP_RINGTONE, -1) // -1 = plays continuously until stopped
-            }
-        }.getOrNull()
-    }
-
-    private fun stopRingback() {
-        ringbackTone?.let {
-            runCatching { it.stopTone() }
-            runCatching { it.release() }
-        }
-        ringbackTone = null
-    }
-
-    private fun startIncomingAlert() {
-        if (ringtonePlayer != null) return
-        val uri = RingtoneManager.getActualDefaultRingtoneUri(appContext, RingtoneManager.TYPE_RINGTONE)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
-        ringtonePlayer = runCatching {
+        if (ringbackPlayer != null) return
+        ringbackPlayer = runCatching {
             MediaPlayer().apply {
-                setDataSource(appContext, uri)
-                setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                        .build()
-                )
+                val afd = appContext.assets.openFd("ringback.mp3")
+                setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                afd.close()
+                setAudioStreamType(AudioManager.STREAM_VOICE_CALL)
                 isLooping = true
                 prepare()
                 start()
             }
         }.getOrNull()
+    }
+
+    private fun stopRingback() {
+        ringbackPlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
+        ringbackPlayer = null
+    }
+
+    private fun startIncomingAlert() {
+        if (ringtonePlayer != null) return
+        scope.launch {
+            val fileName = ringtoneStore.getSelected()
+                ?: RingtoneAssets.list(appContext).firstOrNull()?.fileName
+
+            ringtonePlayer = runCatching {
+                MediaPlayer().apply {
+                    if (fileName != null) {
+                        val afd = appContext.assets.openFd(RingtoneAssets.assetPath(fileName))
+                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                        afd.close()
+                    }
+                    setAudioStreamType(AudioManager.STREAM_RING)
+                    isLooping = true
+                    prepare()
+                    start()
+                }
+            }.getOrNull()
+        }
 
         vibrator = appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        val pattern = longArrayOf(0, 800, 600)
-        vibrator?.vibrate(VibrationEffect.createWaveform(pattern, 0))
+        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 600), 0))
     }
 
     private fun stopIncomingAlert() {
-        ringtonePlayer?.let {
-            runCatching { it.stop() }
-            runCatching { it.release() }
-        }
+        ringtonePlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
         ringtonePlayer = null
         vibrator?.cancel()
         vibrator = null
     }
+
+    // ---- proximity: dims/blanks the screen near the ear during an
+    // active call, exactly like the stock dialer, without locking
+    // the device or interrupting the call. ----
+
+    private fun updateProximityLock(state: CallUiState) {
+        if (state is CallUiState.Active) {
+            if (proximityWakeLock == null) {
+                val pm = appContext.getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (pm.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+                    @Suppress("DEPRECATION")
+                    proximityWakeLock = pm.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "callin:proximity")
+                    proximityWakeLock?.acquire()
+                }
+            }
+        } else {
+            proximityWakeLock?.let { if (it.isHeld) it.release() }
+            proximityWakeLock = null
+        }
+    }
+
+    // ---- signaling ----
 
     private fun handleMessage(msg: SignalingMessage) {
         val myId = myUserId()
@@ -185,6 +247,7 @@ class CallRepository(
         if (_state.value !is CallUiState.Idle) return
         val callerId = msg.from ?: return
         val peer = lookupPeer(callerId)
+        attemptStartedAtMillis = System.currentTimeMillis()
         setState(
             CallUiState.Incoming(
                 CallPeerInfo(
@@ -205,6 +268,7 @@ class CallRepository(
         if (isCaller) {
             val client = ensureWebRtc()
             client.start(IceServers.defaults())
+            client.setSpeakerOn(_isSpeakerOn.value)
             client.createOffer { sdp -> sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, sdp) }
         }
         setState(CallUiState.Active(info, startedAt))
@@ -212,6 +276,7 @@ class CallRepository(
 
     private fun onTerminal(reason: String) {
         val info = currentInfo() ?: return
+        recordCallEnd(info, reason)
         cleanupWebRtc()
         setState(CallUiState.Ended(info, reason))
     }
@@ -238,9 +303,12 @@ class CallRepository(
         webRtc?.addRemoteIceCandidate(IceCandidate(c.sdpMid, c.sdpMLineIndex, c.candidate))
     }
 
+    // ---- outgoing ----
+
     fun startCall(peerId: String, peerUsername: String, peerDisplayName: String?, peerAvatarUrl: String?) {
         if (_state.value !is CallUiState.Idle) return
         isCaller = true
+        attemptStartedAtMillis = System.currentTimeMillis()
         setState(
             CallUiState.Outgoing(
                 CallPeerInfo(UUID.randomUUID().toString(), peerId, peerUsername, peerDisplayName, peerAvatarUrl),
@@ -254,16 +322,20 @@ class CallRepository(
     fun cancelCall() {
         val info = (_state.value as? CallUiState.Outgoing)?.info ?: return
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_CANCEL, callId = info.callId, to = info.peerId))
+        recordCallEnd(info, "cancelled")
         cleanupWebRtc()
         setState(CallUiState.Idle)
     }
 
+    // ---- incoming ----
+
     fun acceptCall() {
         val info = (_state.value as? CallUiState.Incoming)?.info ?: return
         isCaller = false
-        ensureWebRtc().start(IceServers.defaults())
+        val client = ensureWebRtc()
+        client.start(IceServers.defaults())
+        client.setSpeakerOn(_isSpeakerOn.value)
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_ACCEPT, callId = info.callId, to = info.peerId))
-        // Moves to Active once the (now correctly echoed) call.accept comes back — see onAccept().
     }
 
     fun rejectCall() {
@@ -272,9 +344,12 @@ class CallRepository(
         setState(CallUiState.Idle)
     }
 
+    // ---- active ----
+
     fun endCall() {
         val info = currentInfo() ?: return
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_END, callId = info.callId, to = info.peerId))
+        recordCallEnd(info, "ended")
         cleanupWebRtc()
         setState(CallUiState.Idle)
     }
@@ -295,6 +370,52 @@ class CallRepository(
         _isSpeakerOn.value = next
     }
 
+    // ---- local call history ----
+
+    private fun recordCallEnd(info: CallPeerInfo, reason: String) {
+        val current = _state.value
+        val wasActive = current is CallUiState.Active
+        val durationSeconds = if (wasActive) {
+            ((System.currentTimeMillis() - (current as CallUiState.Active).startedAtMillis) / 1000).coerceAtLeast(0)
+        } else 0L
+
+        recentCallsStore.let { store ->
+            scope.launch {
+                store.record(
+                    RecentCallEntry(
+                        peerId = info.peerId,
+                        peerUsername = info.peerUsername,
+                        peerDisplayName = info.peerDisplayName,
+                        peerAvatarUrl = info.peerAvatarUrl,
+                        direction = if (isCaller) CallDirection.OUTGOING else CallDirection.INCOMING,
+                        timestampMillis = if (attemptStartedAtMillis > 0) attemptStartedAtMillis else System.currentTimeMillis(),
+                        durationSeconds = durationSeconds,
+                        missed = !wasActive,
+                    )
+                )
+            }
+        }
+    }
+
+    private fun recordMissedIncoming(info: CallPeerInfo) {
+        scope.launch {
+            recentCallsStore.record(
+                RecentCallEntry(
+                    peerId = info.peerId,
+                    peerUsername = info.peerUsername,
+                    peerDisplayName = info.peerDisplayName,
+                    peerAvatarUrl = info.peerAvatarUrl,
+                    direction = CallDirection.INCOMING,
+                    timestampMillis = if (attemptStartedAtMillis > 0) attemptStartedAtMillis else System.currentTimeMillis(),
+                    durationSeconds = 0,
+                    missed = true,
+                )
+            )
+        }
+    }
+
+    // ---- helpers ----
+
     private fun currentInfo(): CallPeerInfo? = when (val s = _state.value) {
         is CallUiState.Outgoing -> s.info
         is CallUiState.Incoming -> s.info
@@ -313,7 +434,7 @@ class CallRepository(
                 )
                 signalingClient.send(SignalingMessage(type = SignalingType.WEBRTC_CANDIDATE, to = info.peerId, payload = payload))
             },
-            onIceStateChanged = { /* hook for a "reconnecting" indicator later */ },
+            onIceStateChanged = { },
         ).also { webRtc = it }
     }
 
@@ -325,10 +446,13 @@ class CallRepository(
     private fun cleanupWebRtc() {
         stopRingback()
         stopIncomingAlert()
+        proximityWakeLock?.let { if (it.isHeld) it.release() }
+        proximityWakeLock = null
         webRtc?.release()
         webRtc = null
         _isMuted.value = false
-        _isSpeakerOn.value = true
+        _isSpeakerOn.value = false
         isCaller = false
+        attemptStartedAtMillis = 0L
     }
 }

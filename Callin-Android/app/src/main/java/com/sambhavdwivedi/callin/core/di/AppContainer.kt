@@ -5,6 +5,8 @@ import com.sambhavdwivedi.callin.core.network.RetrofitProvider
 import com.sambhavdwivedi.callin.core.network.SignalingClient
 import com.sambhavdwivedi.callin.core.network.TokenStore
 import com.sambhavdwivedi.callin.core.storage.NotificationHistoryStore
+import com.sambhavdwivedi.callin.core.storage.RecentCallsStore
+import com.sambhavdwivedi.callin.core.storage.RingtoneStore
 import com.sambhavdwivedi.callin.data.remote.AuthApi
 import com.sambhavdwivedi.callin.data.remote.ConnectionApi
 import com.sambhavdwivedi.callin.data.remote.UserApi
@@ -22,6 +24,8 @@ class AppContainer(context: Context) {
     private val connectionApi = retrofit.create(ConnectionApi::class.java)
 
     private val notificationHistoryStore = NotificationHistoryStore(context.applicationContext)
+    val ringtoneStore = RingtoneStore(context.applicationContext)
+    val recentCallsStore = RecentCallsStore(context.applicationContext)
 
     val authRepository = AuthRepository(authApi, tokenStore)
     val userRepository = UserRepository(userApi)
@@ -32,6 +36,8 @@ class AppContainer(context: Context) {
     val callRepository = CallRepository(
         context = context.applicationContext,
         signalingClient = signalingClient,
+        ringtoneStore = ringtoneStore,
+        recentCallsStore = recentCallsStore,
         myUserId = { userRepository.me.value?.id },
         lookupPeer = { peerId ->
             connectionRepository.connections.value

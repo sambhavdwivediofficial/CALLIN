@@ -44,7 +44,10 @@ class WebRtcClient(
             .createInitializationOptions()
         PeerConnectionFactory.initialize(initOptions)
 
-        val audioDeviceModule = JavaAudioDeviceModule.builder(appContext).createAudioDeviceModule()
+        val audioDeviceModule = JavaAudioDeviceModule.builder(appContext)
+            .setUseHardwareAcousticEchoCanceler(true)
+            .setUseHardwareNoiseSuppressor(true)
+            .createAudioDeviceModule()
 
         peerConnectionFactory = PeerConnectionFactory.builder()
             .setAudioDeviceModule(audioDeviceModule)
@@ -53,13 +56,15 @@ class WebRtcClient(
 
     fun start(iceServers: List<PeerConnection.IceServer>) {
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-        audioManager.isSpeakerphoneOn = true
-
+        // Speaker starts OFF (earpiece) — CallRepository applies the
+        // user's actual choice right after this via setSpeakerOn().
+        audioManager.isSpeakerphoneOn = false
+    
         val rtcConfig = PeerConnection.RTCConfiguration(iceServers)
         rtcConfig.sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN
-
+    
         peerConnection = peerConnectionFactory.createPeerConnection(rtcConfig, PeerConnectionObserverImpl())
-
+    
         val audioSource = peerConnectionFactory.createAudioSource(MediaConstraints())
         localAudioTrack = peerConnectionFactory.createAudioTrack("callin_audio", audioSource)
         peerConnection?.addTrack(localAudioTrack, listOf("callin_stream"))
