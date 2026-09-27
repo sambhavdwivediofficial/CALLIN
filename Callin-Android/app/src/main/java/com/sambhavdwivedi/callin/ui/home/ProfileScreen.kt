@@ -78,6 +78,7 @@ fun ProfileScreen(
     var isLoading by remember { mutableStateOf(me == null) }
     var isSigningOut by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showRingtoneSheet by remember { mutableStateOf(false) }
 
     val pendingRequests by container.connectionRepository.pendingRequests.collectAsState()
     val hasPendingRequests = !pendingRequests.isNullOrEmpty()
@@ -186,6 +187,11 @@ fun ProfileScreen(
                             text = { Text("Privacy Policy") },
                             onClick = { menuExpanded = false; onOpenPrivacy() }
                         )
+                        HorizontalDivider(thickness = 0.3.dp, color = Color.LightGray)
+                        DropdownMenuItem(
+                            text = { Text("Ringtone") },
+                            onClick = { menuExpanded = false; showRingtoneSheet = true }
+                        )
                     }
                 }
             }
@@ -285,6 +291,10 @@ fun ProfileScreen(
         }
 
         Spacer(Modifier.height(28.dp))
+    }
+
+    if (showRingtoneSheet) {
+        com.sambhavdwivedi.callin.ui.call.RingtonePickerSheet(container = container, onDismiss = { showRingtoneSheet = false })
     }
 }
 

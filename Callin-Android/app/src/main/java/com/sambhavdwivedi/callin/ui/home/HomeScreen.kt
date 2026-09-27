@@ -94,7 +94,7 @@ fun HomeScreen(
                 .padding(innerPadding)
         ) {
             when (selectedTab) {
-                HomeTab.Recents -> RecentsScreen()
+                HomeTab.Recents -> RecentsScreen(container = container)
                 HomeTab.Contacts -> ContactsScreen(container = container)
                 HomeTab.Profile -> ProfileScreen(
                     container = container,

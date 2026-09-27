@@ -5,9 +5,11 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +25,7 @@ import com.sambhavdwivedi.callin.data.repository.CallUiState
 import com.sambhavdwivedi.callin.ui.auth.CompleteProfileScreen
 import com.sambhavdwivedi.callin.ui.auth.LoginScreen
 import com.sambhavdwivedi.callin.ui.call.CallRoute
+import com.sambhavdwivedi.callin.ui.components.InCallBanner
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.home.HomeScreen
 import com.sambhavdwivedi.callin.ui.legal.PrivacyScreen
@@ -55,14 +58,16 @@ fun CallinNavHost() {
         }
     }
 
-    // Drives the call screen onto the stack the instant an incoming
-    // or outgoing call starts, from whatever screen the user is on
-    // — and pops it back off once the call is fully over. This runs
-    // for the whole app session, independent of which destination
-    // is currently showing.
+    var currentRoute by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(navController) {
+        navController.currentBackStackEntryFlow.collect { entry ->
+            currentRoute = entry.destination.route
+        }
+    }
+
     LaunchedEffect(container) {
         container.callRepository.state.collect { callState ->
-            val onCallRoute = navController.currentDestination?.route == Routes.Call
+            val onCallRoute = currentRoute == Routes.Call
             when (callState) {
                 is CallUiState.Idle -> if (onCallRoute) navController.popBackStack()
                 is CallUiState.Outgoing, is CallUiState.Incoming, is CallUiState.Active, is CallUiState.Ended -> {
@@ -88,55 +93,73 @@ fun CallinNavHost() {
         else -> Routes.Login
     }
 
-    NavHost(
-        navController = navController,
-        startDestination = startDestination,
-        enterTransition = { fadeIn(animationSpec = tween(220)) },
-        exitTransition = { fadeOut(animationSpec = tween(180)) },
-        popEnterTransition = { fadeIn(animationSpec = tween(220)) },
-        popExitTransition = { fadeOut(animationSpec = tween(180)) }
-    ) {
-        composable(Routes.Login) {
-            LoginScreen(
-                container = container,
-                onSignedIn = { needsProfile ->
-                    val dest = if (needsProfile) Routes.CompleteProfile else Routes.Home
-                    navController.navigate(dest) { popUpTo(Routes.Login) { inclusive = true } }
-                },
-                onOpenTerms = { navController.navigate(Routes.Terms) },
-                onOpenPrivacy = { navController.navigate(Routes.Privacy) }
-            )
-        }
-        composable(Routes.CompleteProfile) {
-            CompleteProfileScreen(
-                container = container,
-                onCompleted = {
-                    container.signalingClient.start()
-                    container.callRepository.start()
-                    navController.navigate(Routes.Home) { popUpTo(Routes.CompleteProfile) { inclusive = true } }
+    val callState by container.callRepository.state.collectAsState()
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Shown on every screen EXCEPT the Call screen itself.
+        if (currentRoute != Routes.Call) {
+            when (val s = callState) {
+                is CallUiState.Outgoing -> InCallBanner(s.info, if (s.ringing) "Ringing..." else "Connecting...") {
+                    navController.navigate(Routes.Call)
                 }
-            )
+                is CallUiState.Active -> InCallBanner(s.info, "Ongoing call — tap to return") {
+                    navController.navigate(Routes.Call)
+                }
+                else -> Unit
+            }
         }
-        composable(Routes.Home) {
-            HomeScreen(
-                container = container,
-                onSignOut = { navController.navigate(Routes.Login) { popUpTo(0) { inclusive = true } } },
-                onOpenMyQr = { navController.navigate(Routes.MyQrCode) },
-                onOpenScanQr = { navController.navigate(Routes.ScanQrCode) },
-                onOpenNotifications = { navController.navigate(Routes.Notifications) },
-                onOpenTerms = { navController.navigate(Routes.Terms) },
-                onOpenPrivacy = { navController.navigate(Routes.Privacy) }
-            )
-        }
-        composable(Routes.Terms) { TermsScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.Privacy) { PrivacyScreen(onBack = { navController.popBackStack() }) }
-        composable(Routes.MyQrCode) { MyQrCodeScreen(container = container, onBack = { navController.popBackStack() }) }
-        composable(Routes.ScanQrCode) {
-            ScanQrScreen(container = container, onBack = { navController.popBackStack() }, onAdded = { navController.popBackStack() })
-        }
-        composable(Routes.Notifications) { NotificationsScreen(container = container, onBack = { navController.popBackStack() }) }
-        composable(Routes.Call) {
-            CallRoute(container = container, onFinished = { /* state already Idle by the time this fires */ })
+
+        NavHost(
+            navController = navController,
+            startDestination = startDestination,
+            modifier = Modifier.weight(1f),
+            enterTransition = { fadeIn(animationSpec = tween(220)) },
+            exitTransition = { fadeOut(animationSpec = tween(180)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(220)) },
+            popExitTransition = { fadeOut(animationSpec = tween(180)) }
+        ) {
+            composable(Routes.Login) {
+                LoginScreen(
+                    container = container,
+                    onSignedIn = { needsProfile ->
+                        val dest = if (needsProfile) Routes.CompleteProfile else Routes.Home
+                        navController.navigate(dest) { popUpTo(Routes.Login) { inclusive = true } }
+                    },
+                    onOpenTerms = { navController.navigate(Routes.Terms) },
+                    onOpenPrivacy = { navController.navigate(Routes.Privacy) }
+                )
+            }
+            composable(Routes.CompleteProfile) {
+                CompleteProfileScreen(
+                    container = container,
+                    onCompleted = {
+                        container.signalingClient.start()
+                        container.callRepository.start()
+                        navController.navigate(Routes.Home) { popUpTo(Routes.CompleteProfile) { inclusive = true } }
+                    }
+                )
+            }
+            composable(Routes.Home) {
+                HomeScreen(
+                    container = container,
+                    onSignOut = { navController.navigate(Routes.Login) { popUpTo(0) { inclusive = true } } },
+                    onOpenMyQr = { navController.navigate(Routes.MyQrCode) },
+                    onOpenScanQr = { navController.navigate(Routes.ScanQrCode) },
+                    onOpenNotifications = { navController.navigate(Routes.Notifications) },
+                    onOpenTerms = { navController.navigate(Routes.Terms) },
+                    onOpenPrivacy = { navController.navigate(Routes.Privacy) }
+                )
+            }
+            composable(Routes.Terms) { TermsScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.Privacy) { PrivacyScreen(onBack = { navController.popBackStack() }) }
+            composable(Routes.MyQrCode) { MyQrCodeScreen(container = container, onBack = { navController.popBackStack() }) }
+            composable(Routes.ScanQrCode) {
+                ScanQrScreen(container = container, onBack = { navController.popBackStack() }, onAdded = { navController.popBackStack() })
+            }
+            composable(Routes.Notifications) { NotificationsScreen(container = container, onBack = { navController.popBackStack() }) }
+            composable(Routes.Call) {
+                CallRoute(container = container, onFinished = { })
+            }
         }
     }
 }
