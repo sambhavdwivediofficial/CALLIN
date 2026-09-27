@@ -77,7 +77,7 @@ fun CallRoute(container: AppContainer, onFinished: () -> Unit) {
 
     fun acceptWithPermission() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-            PackageManager.PERMISSION_GRANTED
+                PackageManager.PERMISSION_GRANTED
         if (granted) {
             container.callRepository.acceptCall()
         } else {
@@ -227,6 +227,8 @@ private fun InCallScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    // Highlighted (white bg, black icon) whenever
+                    // speaker is currently ON.
                     CallControlButton(icon = Icons.Filled.VolumeUp, active = isSpeakerOn, onClick = onToggleSpeaker)
 
                     Box(
@@ -241,7 +243,10 @@ private fun InCallScreen(
                     }
 
                     if (showMute) {
-                        CallControlButton(icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic, active = !isMuted, onClick = onToggleMute)
+                        // Highlighted (white bg, black icon) whenever
+                        // the user has actually muted themself —
+                        // i.e. active = isMuted, not !isMuted.
+                        CallControlButton(icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic, active = isMuted, onClick = onToggleMute)
                     } else {
                         Spacer(Modifier.size(48.dp))
                     }
@@ -302,17 +307,25 @@ private fun IncomingCallScreen(info: CallPeerInfo, onAccept: () -> Unit, onRejec
     }
 }
 
+/** White-on-transparent by default; flips to a solid white
+ * background with a black icon while [active] is true — a clear,
+ * unmistakable pressed/engaged state for speaker and mute. */
 @Composable
 private fun CallControlButton(icon: ImageVector, active: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(48.dp)
             .clip(CircleShape)
-            .background(if (active) Color.White.copy(alpha = 0.15f) else Color.White.copy(alpha = 0.05f))
+            .background(if (active) Color.White else Color.White.copy(alpha = 0.12f))
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(22.dp))
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = if (active) Color.Black else Color.White,
+            modifier = Modifier.size(22.dp)
+        )
     }
 }
 

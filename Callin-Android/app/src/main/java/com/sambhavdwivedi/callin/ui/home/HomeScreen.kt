@@ -57,6 +57,7 @@ fun HomeScreen(
     onOpenTerms: () -> Unit,
     onOpenPrivacy: () -> Unit
 ) {
+    com.sambhavdwivedi.callin.core.permissions.RequestAppPermissionsOnce(container.tokenStore)
     var selectedTab by rememberSaveable { mutableStateOf(HomeTab.Contacts) }
 
     Scaffold(

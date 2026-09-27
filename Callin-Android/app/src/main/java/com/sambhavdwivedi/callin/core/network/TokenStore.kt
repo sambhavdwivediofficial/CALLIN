@@ -9,19 +9,12 @@ import kotlinx.coroutines.flow.first
 
 private val Context.authDataStore by preferencesDataStore(name = "auth")
 
-/**
- * Persists the current access/refresh token pair, plus a cached
- * profile_completed flag, on-device using Jetpack DataStore. This is
- * the single source of truth for whether the user is logged in — and,
- * since it's read synchronously with no network call, for exactly
- * where to send them (Login / CompleteProfile / Home) the instant the
- * app opens, regardless of connectivity.
- */
 class TokenStore(private val context: Context) {
 
     private val accessTokenKey = stringPreferencesKey("access_token")
     private val refreshTokenKey = stringPreferencesKey("refresh_token")
     private val profileCompletedKey = booleanPreferencesKey("profile_completed")
+    private val permissionsRequestedKey = booleanPreferencesKey("permissions_requested")
 
     suspend fun saveTokens(accessToken: String, refreshToken: String) {
         context.authDataStore.edit { prefs ->
@@ -44,6 +37,16 @@ class TokenStore(private val context: Context) {
 
     suspend fun getProfileCompleted(): Boolean =
         context.authDataStore.data.first()[profileCompletedKey] ?: false
+
+    /** Whether the one-time, first-run permission sequence (mic,
+     * notifications, camera) has already been shown to this user —
+     * so it never runs a second time even across app restarts. */
+    suspend fun getPermissionsRequested(): Boolean =
+        context.authDataStore.data.first()[permissionsRequestedKey] ?: false
+
+    suspend fun setPermissionsRequested(done: Boolean) {
+        context.authDataStore.edit { prefs -> prefs[permissionsRequestedKey] = done }
+    }
 
     suspend fun clear() {
         context.authDataStore.edit { it.clear() }
