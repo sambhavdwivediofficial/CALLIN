@@ -23,7 +23,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.People
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -46,37 +44,22 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.data.remote.dto.ConnectionDto
+import com.sambhavdwivedi.callin.ui.components.AvatarCircle
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.indication
-import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 
-/**
- * Shows the caller's ACCEPTED connections only — never every CALLIN
- * user. Backed by ConnectionRepository's cache, so a screen visited
- * once shows data instantly on every later visit (no reload
- * flicker), while a background refresh keeps it current. Two users
- * who haven't connected never see each other here, by construction:
- * this screen never touches the "list all users" endpoint at all.
- */
 @Composable
 fun ContactsScreen(container: AppContainer) {
     val focusManager = LocalFocusManager.current
-
     val context = androidx.compose.ui.platform.LocalContext.current
 
     var pendingCallTarget by remember { mutableStateOf<ConnectionDto?>(null) }
@@ -94,24 +77,17 @@ fun ContactsScreen(container: AppContainer) {
         androidx.activity.compose.rememberLauncherForActivityResult(
             contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
         ) { granted ->
-            pendingCallTarget?.let {
-                if (granted) startCall(it)
-            }
+            pendingCallTarget?.let { if (granted) startCall(it) }
             pendingCallTarget = null
         }
 
     fun callWithPermission(contact: ConnectionDto) {
         val granted = androidx.core.content.ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.RECORD_AUDIO
+            context, android.Manifest.permission.RECORD_AUDIO
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-        if (granted) {
-            startCall(contact)
-        } else {
-            pendingCallTarget = contact
-            micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-        }
+        if (granted) startCall(contact)
+        else { pendingCallTarget = contact; micPermissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO) }
     }
 
     val connections by container.connectionRepository.connections.collectAsState()
@@ -120,29 +96,19 @@ fun ContactsScreen(container: AppContainer) {
     var searchQuery by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
-        // Cache already has last-known data (instant paint if
-        // revisiting); this just refreshes it in the background.
         container.connectionRepository.refreshConnections()
-            .onFailure { error ->
-                if (connections == null) errorMessage = error.message ?: "Could not load contacts."
-            }
+            .onFailure { error -> if (connections == null) errorMessage = error.message ?: "Could not load contacts." }
         isLoading = false
     }
 
     val contacts = connections.orEmpty()
 
-    // Search only kicks in at 2+ chars, matches username OR display name.
     val filtered = remember(contacts, searchQuery) {
         val q = searchQuery.trim().lowercase()
         if (q.length < 2) contacts
-        else contacts.filter { c ->
-            c.username.lowercase().contains(q) ||
-                c.display_name.orEmpty().lowercase().contains(q)
-        }
+        else contacts.filter { c -> c.username.lowercase().contains(q) || c.display_name.orEmpty().lowercase().contains(q) }
     }
 
-    // Group alphabetically by display name (fallback username),
-    // first letter only; missing letters simply don't render.
     val grouped = remember(filtered) {
         filtered
             .sortedBy { (it.display_name ?: it.username).lowercase() }
@@ -151,44 +117,28 @@ fun ContactsScreen(container: AppContainer) {
     }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures { focusManager.clearFocus() }
-            }
+        modifier = Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { focusManager.clearFocus() } }
     ) {
         ContactsHeader(searchQuery = searchQuery, onSearchChange = { searchQuery = it })
 
         when {
             isLoading -> LoadingState()
             errorMessage != null -> EmptyState(errorMessage!!)
-            contacts.isEmpty() -> EmptyState(
-                "No contacts yet.\nScan a CALLIN QR code to connect with someone."
-            )
-            filtered.isEmpty() && searchQuery.trim().length >= 2 -> EmptyState(
-                "No contacts found for \"$searchQuery\"."
-            )
-            else -> {
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    grouped.forEach { (letter, people) ->
-                        item(key = "header_$letter") {
-                            Text(
-                                text = letter.toString(),
-                                color = CallinColors.TextSecondary,
-                                fontWeight = FontWeight.SemiBold,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(
-                                    horizontal = 20.dp,
-                                    vertical = 0.dp
-                                )
-                            )
-                        }
-                        items(items = people, key = { it.user_id }) { contact ->
-                            ContactRow(
-                                contact = contact,
-                                onCall = { callWithPermission(contact) }
-                            )
-                        }
+            contacts.isEmpty() -> EmptyState("No contacts yet.\nScan a CALLIN QR code to connect with someone.")
+            filtered.isEmpty() && searchQuery.trim().length >= 2 -> EmptyState("No contacts found for \"$searchQuery\".")
+            else -> LazyColumn(modifier = Modifier.fillMaxSize()) {
+                grouped.forEach { (letter, people) ->
+                    item(key = "header_$letter") {
+                        Text(
+                            text = letter.toString(),
+                            color = CallinColors.TextSecondary,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 0.dp)
+                        )
+                    }
+                    items(items = people, key = { it.user_id }) { contact ->
+                        ContactRow(contact = contact, onCall = { callWithPermission(contact) })
                     }
                 }
             }
@@ -200,32 +150,15 @@ fun ContactsScreen(container: AppContainer) {
 private fun ContactsHeader(searchQuery: String, onSearchChange: (String) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Filled.People,
-                contentDescription = null,
-                tint = CallinColors.TextPrimary,
-                modifier = Modifier.size(24.dp)
-            )
+            Icon(Icons.Filled.People, contentDescription = null, tint = CallinColors.TextPrimary, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(8.dp))
-            Text(
-                text = "Contacts",
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 24.sp,
-                maxLines = 1
-            )
+            Text("Contacts", color = CallinColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 24.sp, maxLines = 1)
         }
-
         SearchBox(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(bottom = 12.dp),
             value = searchQuery,
             onSearchChange = onSearchChange
         )
@@ -253,9 +186,7 @@ private fun SearchBox(modifier: Modifier = Modifier, value: String, onSearchChan
             modifier = Modifier.fillMaxWidth(),
             decorationBox = { inner ->
                 Box(contentAlignment = Alignment.CenterStart) {
-                    if (value.isEmpty()) {
-                        Text("Search contacts", color = CallinColors.TextSecondary, fontSize = 14.sp)
-                    }
+                    if (value.isEmpty()) Text("Search contacts", color = CallinColors.TextSecondary, fontSize = 14.sp)
                     inner()
                 }
             }
@@ -266,108 +197,55 @@ private fun SearchBox(modifier: Modifier = Modifier, value: String, onSearchChan
 @Composable
 private fun ContactRow(contact: ConnectionDto, onCall: () -> Unit) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .size(48.dp)
-                .clip(CircleShape)
-                .background(CallinColors.Background)
-                .border(1.dp, CallinColors.TextSecondary, CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            if (!contact.avatar_url.isNullOrBlank()) {
-                AsyncImage(
-                    model = contact.avatar_url,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp).clip(CircleShape),
-                    contentScale = ContentScale.Crop
-                )
-            } else {
-                Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary)
-            }
-        }
+        AvatarCircle(
+            avatarUrl = contact.avatar_url,
+            displayName = contact.display_name,
+            username = contact.username,
+            size = 48.dp
+        )
 
         Spacer(Modifier.width(14.dp))
 
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = contact.display_name ?: contact.username,
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.Medium,
-                fontSize = 16.sp
-            )
-            Text(
-                text = "@${contact.username}",
-                color = CallinColors.TextSecondary,
-                fontSize = 13.sp
-            )
+            Text(contact.display_name ?: contact.username, color = CallinColors.TextPrimary, fontWeight = FontWeight.Medium, fontSize = 16.sp)
+            Text("@${contact.username}", color = CallinColors.TextSecondary, fontSize = 13.sp)
         }
 
         RippleCallIcon(onClick = onCall)
     }
 }
 
-/** White call icon with a brief circular ripple burst from its own center on tap. */
 @Composable
 private fun RippleCallIcon(onClick: () -> Unit) {
     val scope = rememberCoroutineScope()
     val rippleAlpha = remember { Animatable(0f) }
     val rippleScale = remember { Animatable(0.3f) }
 
-    Box(
-        modifier = Modifier.size(40.dp),
-        contentAlignment = Alignment.Center
-    ) {
+    Box(modifier = Modifier.size(40.dp), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
                 .size(40.dp)
                 .clip(CircleShape)
-                .border(
-                    1.dp,
-                    Color.White.copy(alpha = 0.25f),
-                    CircleShape
-                )
+                .border(1.dp, Color.White.copy(alpha = 0.25f), CircleShape)
                 .clickable {
-                    scope.launch {
-                        rippleAlpha.snapTo(1f)
-                        rippleScale.snapTo(0.3f)
-                        rippleScale.animateTo(1.4f, tween(350))
-                    }
-                    scope.launch {
-                        rippleAlpha.animateTo(0f, tween(380))
-                    }
+                    scope.launch { rippleAlpha.snapTo(1f); rippleScale.snapTo(0.3f); rippleScale.animateTo(1.4f, tween(350)) }
+                    scope.launch { rippleAlpha.animateTo(0f, tween(380)) }
                     onClick()
                 },
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                imageVector = Icons.Filled.Call,
-                contentDescription = "Call",
-                tint = Color.White,
-                modifier = Modifier.size(22.dp)
-            )
+            Icon(Icons.Filled.Call, contentDescription = "Call", tint = Color.White, modifier = Modifier.size(22.dp))
         }
         Icon(
-            imageVector = Icons.Filled.Call,
-            contentDescription = "Call",
-            tint = Color.White,
-            modifier = Modifier
-                .size(22.dp)
-                .clickable {
-                    scope.launch {
-                        rippleAlpha.snapTo(1f)
-                        rippleScale.snapTo(0.3f)
-                        rippleScale.animateTo(1.4f, tween(350))
-                    }
-                    scope.launch {
-                        rippleAlpha.animateTo(0f, tween(380))
-                    }
-                    onClick()
-                }
+            Icons.Filled.Call, contentDescription = "Call", tint = Color.White,
+            modifier = Modifier.size(22.dp).clickable {
+                scope.launch { rippleAlpha.snapTo(1f); rippleScale.snapTo(0.3f); rippleScale.animateTo(1.4f, tween(350)) }
+                scope.launch { rippleAlpha.animateTo(0f, tween(380)) }
+                onClick()
+            }
         )
     }
 }
@@ -381,15 +259,7 @@ private fun LoadingState() {
 
 @Composable
 fun EmptyState(message: String) {
-    Box(
-        modifier = Modifier.fillMaxSize().padding(32.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = message,
-            color = CallinColors.TextSecondary,
-            fontSize = 14.sp,
-            textAlign = TextAlign.Center
-        )
+    Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+        Text(message, color = CallinColors.TextSecondary, fontSize = 14.sp, textAlign = TextAlign.Center)
     }
 }

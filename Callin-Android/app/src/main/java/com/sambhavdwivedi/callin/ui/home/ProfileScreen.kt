@@ -47,14 +47,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
 import com.sambhavdwivedi.callin.core.di.AppContainer
+import com.sambhavdwivedi.callin.ui.components.AvatarCircle
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
 import kotlinx.coroutines.delay
@@ -72,8 +70,6 @@ fun ProfileScreen(
 ) {
     val scope = rememberCoroutineScope()
 
-    // Cached profile: shows instantly on every revisit, no spinner
-    // flash — getMe() below just refreshes it silently underneath.
     val me by container.userRepository.me.collectAsState()
     var isLoading by remember { mutableStateOf(me == null) }
     var isSigningOut by remember { mutableStateOf(false) }
@@ -88,9 +84,6 @@ fun ProfileScreen(
         isLoading = false
     }
 
-    // Lightweight polling so the bell's dot and the Notifications
-    // list reflect new requests without the user needing to
-    // manually refresh. Only runs while this screen is composed.
     LaunchedEffect(Unit) {
         while (true) {
             container.connectionRepository.refreshPending()
@@ -205,30 +198,12 @@ fun ProfileScreen(
             }
         } else {
             Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Box(
-                    modifier = Modifier
-                        .size(96.dp)
-                        .clip(CircleShape)
-                        .background(CallinColors.Background)
-                        .border(1.dp, CallinColors.TextSecondary, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (!me?.avatar_url.isNullOrBlank()) {
-                        AsyncImage(
-                            model = me?.avatar_url,
-                            contentDescription = null,
-                            modifier = Modifier.size(96.dp).clip(CircleShape),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Person,
-                            contentDescription = null,
-                            tint = CallinColors.TextSecondary,
-                            modifier = Modifier.size(40.dp)
-                        )
-                    }
-                }
+                AvatarCircle(
+                    avatarUrl = me?.avatar_url,
+                    displayName = me?.display_name,
+                    username = me?.username,
+                    size = 96.dp
+                )
             }
 
             Spacer(Modifier.height(16.dp))
@@ -298,19 +273,14 @@ fun ProfileScreen(
     }
 }
 
-/** Small pulsing blue dot, top-right of the bell, while requests are pending. */
 @Composable
 private fun PendingNotificationFill() {
     val transition = rememberInfiniteTransition(label = "notification_fill")
-
     val scale by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(
-                durationMillis = 550,
-                easing = androidx.compose.animation.core.FastOutSlowInEasing
-            ),
+            animation = tween(durationMillis = 550, easing = androidx.compose.animation.core.FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "notification_fill_scale"
@@ -320,12 +290,7 @@ private fun PendingNotificationFill() {
         imageVector = Icons.Filled.Notifications,
         contentDescription = null,
         tint = Color.White,
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
-            }
+        modifier = Modifier.fillMaxSize().graphicsLayer { scaleX = scale; scaleY = scale }
     )
 }
 
