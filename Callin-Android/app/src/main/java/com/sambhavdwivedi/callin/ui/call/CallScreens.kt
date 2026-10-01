@@ -11,7 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -26,20 +25,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,20 +47,34 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
-import coil.compose.AsyncImage
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.data.repository.CallPeerInfo
 import com.sambhavdwivedi.callin.data.repository.CallUiState
+import com.sambhavdwivedi.callin.ui.components.AvatarCircle
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
 import kotlinx.coroutines.delay
 
+/**
+ * Single entry point mounted once, app-wide, whenever
+ * CallRepository.state is not Idle — see CallinNavHost/MainActivity
+ * for where this is hosted on top of everything else. Routes to the
+ * right full-screen UI for whichever state the call is currently in.
+ *
+ * Mute/speaker state is owned by CallRepository (so it survives this
+ * composable being torn down/recreated across configuration changes)
+ * and is collected here for both the Outgoing (ringing) and Active
+ * screens — a caller can set speaker/mute *before* the callee even
+ * answers, and whatever they picked is exactly what's already in
+ * effect the instant WebRTC connects, because CallRepository applies
+ * isMuted/isSpeakerOn to the WebRtcClient the moment it is created
+ * (see ensureWebRtc()/acceptCall()/onAccept() in CallRepository).
+ */
 @Composable
 fun CallRoute(container: AppContainer, onFinished: () -> Unit) {
     val context = LocalContext.current
@@ -77,7 +90,7 @@ fun CallRoute(container: AppContainer, onFinished: () -> Unit) {
 
     fun acceptWithPermission() {
         val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) ==
-                PackageManager.PERMISSION_GRANTED
+            PackageManager.PERMISSION_GRANTED
         if (granted) {
             container.callRepository.acceptCall()
         } else {
@@ -86,253 +99,430 @@ fun CallRoute(container: AppContainer, onFinished: () -> Unit) {
         }
     }
 
+    val muted by container.callRepository.isMuted.collectAsState()
+    val speakerOn by container.callRepository.isSpeakerOn.collectAsState()
+
     when (val s = state) {
         is CallUiState.Incoming -> IncomingCallScreen(
             info = s.info,
             onAccept = { acceptWithPermission() },
             onReject = { container.callRepository.rejectCall() }
         )
+
         is CallUiState.Outgoing -> InCallScreen(
             info = s.info,
             statusText = if (s.ringing) "Ringing..." else "Connecting...",
             startedAtMillis = null,
-            isMuted = false,
-            isSpeakerOn = true,
-            showMute = true,
-            onToggleMute = {},
+            isMuted = muted,
+            isSpeakerOn = speakerOn,
+            onToggleMute = { container.callRepository.toggleMute() },
             onToggleSpeaker = { container.callRepository.toggleSpeaker() },
-            onEnd = { container.callRepository.cancelCall() }
+            onEndCall = { container.callRepository.cancelCall() }
         )
-        is CallUiState.Active -> {
-            val muted by container.callRepository.isMuted.collectAsState()
-            val speakerOn by container.callRepository.isSpeakerOn.collectAsState()
-            InCallScreen(
-                info = s.info,
-                statusText = null,
-                startedAtMillis = s.startedAtMillis,
-                isMuted = muted,
-                isSpeakerOn = speakerOn,
-                showMute = true,
-                onToggleMute = { container.callRepository.toggleMute() },
-                onToggleSpeaker = { container.callRepository.toggleSpeaker() },
-                onEnd = { container.callRepository.endCall() }
-            )
-        }
+
+        is CallUiState.Active -> InCallScreen(
+            info = s.info,
+            statusText = null,
+            startedAtMillis = s.startedAtMillis,
+            isMuted = muted,
+            isSpeakerOn = speakerOn,
+            onToggleMute = { container.callRepository.toggleMute() },
+            onToggleSpeaker = { container.callRepository.toggleSpeaker() },
+            onEndCall = { container.callRepository.endCall() }
+        )
+
         is CallUiState.Ended -> {
-            LaunchedEffect(s) {
+            LaunchedEffect(s.info.callId) {
                 delay(1200)
                 container.callRepository.dismissEnded()
                 onFinished()
             }
-            InCallScreen(
-                info = s.info,
-                statusText = s.reason.replaceFirstChar { it.uppercase() },
-                startedAtMillis = null,
-                isMuted = false,
-                isSpeakerOn = true,
-                showMute = true,
-                onToggleMute = {},
-                onToggleSpeaker = {},
-                onEnd = {}
-            )
+            EndedCallScreen(info = s.info, reason = s.reason)
         }
-        is CallUiState.Idle -> Unit
+
+        CallUiState.Idle -> Unit
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Incoming call — full-screen ring UI with Accept / Decline
+// ─────────────────────────────────────────────────────────────
+
 @Composable
-private fun PeerAvatar(avatarUrl: String?, size: androidx.compose.ui.unit.Dp, borderAlpha: Float) {
+fun IncomingCallScreen(
+    info: CallPeerInfo,
+    onAccept: () -> Unit,
+    onReject: () -> Unit,
+) {
     Box(
         modifier = Modifier
-            .size(size)
-            .clip(CircleShape)
+            .fillMaxSize()
             .background(CallinColors.Background)
-            .border(2.dp, CallinColors.TextSecondary.copy(alpha = borderAlpha), CircleShape),
-        contentAlignment = Alignment.Center
     ) {
-        if (!avatarUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = avatarUrl,
-                contentDescription = null,
-                modifier = Modifier.size(size).clip(CircleShape),
-                contentScale = ContentScale.Crop
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 32.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.weight(1f))
+
+            Text(
+                text = "Incoming call",
+                color = CallinColors.TextSecondary,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium
             )
-        } else {
-            Icon(Icons.Filled.Person, contentDescription = null, tint = CallinColors.TextSecondary, modifier = Modifier.size(size / 2.5f))
+
+            Spacer(Modifier.height(28.dp))
+
+            PulsingPeerAvatar(info = info)
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                text = info.peerDisplayName ?: info.peerUsername,
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 26.sp,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = "@${info.peerUsername}",
+                color = CallinColors.TextSecondary,
+                fontSize = 15.sp
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                CallActionButton(
+                    icon = Icons.Filled.CallEnd,
+                    background = CallinColors.Danger,
+                    label = "Decline",
+                    onClick = onReject
+                )
+                CallActionButton(
+                    icon = Icons.Filled.Call,
+                    background = CallinColors.Success,
+                    label = "Accept",
+                    onClick = onAccept
+                )
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Outgoing (ringing/connecting) + Active (connected) — one shared
+// screen, since the layout and controls are identical; only the
+// status line under the name (ringing text vs. live timer) differs.
+// ─────────────────────────────────────────────────────────────
+
 @Composable
-private fun InCallScreen(
+fun InCallScreen(
     info: CallPeerInfo,
     statusText: String?,
     startedAtMillis: Long?,
     isMuted: Boolean,
     isSpeakerOn: Boolean,
-    showMute: Boolean,
     onToggleMute: () -> Unit,
     onToggleSpeaker: () -> Unit,
-    onEnd: () -> Unit,
+    onEndCall: () -> Unit,
 ) {
-    var elapsedText by remember { mutableStateOf("00:00") }
-
-    LaunchedEffect(startedAtMillis) {
-        if (startedAtMillis == null) return@LaunchedEffect
-        while (true) {
-            elapsedText = formatDuration(System.currentTimeMillis() - startedAtMillis)
-            delay(250)
-        }
-    }
-
-    val glow = rememberInfiniteTransition(label = "avatar_glow")
-    val glowAlpha by glow.animateFloat(
-        initialValue = if (startedAtMillis == null) 0.35f else 1f,
-        targetValue = if (startedAtMillis == null) 0.9f else 1f,
-        animationSpec = infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-        label = "avatar_glow_alpha"
-    )
-
-    Box(modifier = Modifier.fillMaxSize().background(CallinColors.Background)) {
-        Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(Modifier.height(72.dp))
-            PeerAvatar(info.peerAvatarUrl, 140.dp, glowAlpha)
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = info.peerDisplayName ?: info.peerUsername,
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 22.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(text = statusText ?: elapsedText, color = CallinColors.TextSecondary, fontSize = 15.sp)
-
-            Spacer(Modifier.weight(1f))
-
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .navigationBarsPadding()
-                    .padding(bottom = 32.dp)
-                    .clip(RoundedCornerShape(50))
-                    .background(Color(0xFF0E1626))
-                    .padding(vertical = 16.dp, horizontal = 28.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Highlighted (white bg, black icon) whenever
-                    // speaker is currently ON.
-                    CallControlButton(icon = Icons.Filled.VolumeUp, active = isSpeakerOn, onClick = onToggleSpeaker)
-
-                    Box(
-                        modifier = Modifier
-                            .size(58.dp)
-                            .clip(CircleShape)
-                            .background(CallinColors.Danger)
-                            .clickable(onClick = onEnd),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.CallEnd, contentDescription = "End call", tint = Color.White, modifier = Modifier.size(26.dp))
-                    }
-
-                    if (showMute) {
-                        // Highlighted (white bg, black icon) whenever
-                        // the user has actually muted themself —
-                        // i.e. active = isMuted, not !isMuted.
-                        CallControlButton(icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic, active = isMuted, onClick = onToggleMute)
-                    } else {
-                        Spacer(Modifier.size(48.dp))
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun IncomingCallScreen(info: CallPeerInfo, onAccept: () -> Unit, onReject: () -> Unit) {
-    Box(modifier = Modifier.fillMaxSize().background(CallinColors.Background)) {
-        Column(
-            modifier = Modifier.fillMaxSize().statusBarsPadding().padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Spacer(Modifier.height(88.dp))
-            PeerAvatar(info.peerAvatarUrl, 140.dp, 1f)
-            Spacer(Modifier.height(24.dp))
-            Text(
-                text = info.peerDisplayName ?: info.peerUsername,
-                color = CallinColors.TextPrimary,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 22.sp,
-                textAlign = TextAlign.Center
-            )
-            Spacer(Modifier.height(8.dp))
-            Text("Incoming call...", color = CallinColors.TextSecondary, fontSize = 15.sp)
-
-            Spacer(Modifier.weight(1f))
-
-            Row(
-                modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(bottom = 48.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier.size(64.dp).clip(CircleShape).background(CallinColors.Danger).clickable(onClick = onReject),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.CallEnd, contentDescription = "Decline", tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Decline", color = CallinColors.TextSecondary, fontSize = 13.sp)
-                }
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier.size(64.dp).clip(CircleShape).background(CallinColors.Success).clickable(onClick = onAccept),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Filled.Call, contentDescription = "Accept", tint = Color.White, modifier = Modifier.size(28.dp))
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Accept", color = CallinColors.TextSecondary, fontSize = 13.sp)
-                }
-            }
-        }
-    }
-}
-
-/** White-on-transparent by default; flips to a solid white
- * background with a black icon while [active] is true — a clear,
- * unmistakable pressed/engaged state for speaker and mute. */
-@Composable
-private fun CallControlButton(icon: ImageVector, active: Boolean, onClick: () -> Unit) {
     Box(
         modifier = Modifier
-            .size(48.dp)
-            .clip(CircleShape)
-            .background(if (active) Color.White else Color.White.copy(alpha = 0.12f))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
+            .fillMaxSize()
+            .background(CallinColors.Background)
     ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = if (active) Color.Black else Color.White,
-            modifier = Modifier.size(22.dp)
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 32.dp, vertical = 48.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(Modifier.weight(1f))
+
+            AvatarCircle(
+                avatarUrl = info.peerAvatarUrl,
+                displayName = info.peerDisplayName,
+                username = info.peerUsername,
+                size = 128.dp
+            )
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                text = info.peerDisplayName ?: info.peerUsername,
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 26.sp,
+                textAlign = TextAlign.Center
+            )
+
+            Spacer(Modifier.height(6.dp))
+
+            Text(
+                text = "@${info.peerUsername}",
+                color = CallinColors.TextSecondary,
+                fontSize = 14.sp
+            )
+
+            Spacer(Modifier.height(14.dp))
+
+            // Either a static status ("Ringing...", "Connecting...")
+            // or a live timer that both ends of the call compute from
+            // the SAME startedAtMillis (the server's accept
+            // timestamp, see CallRepository.onAccept) — so caller and
+            // callee always show the identical elapsed time, in sync
+            // to the second, with no drift between devices.
+            if (startedAtMillis != null) {
+                LiveCallTimer(startedAtMillis = startedAtMillis)
+            } else if (statusText != null) {
+                Text(
+                    text = statusText,
+                    color = CallinColors.TextSecondary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            // Mute / Speaker — fully live and user-controlled from the
+            // instant a call is outgoing (even before the other side
+            // answers). Each toggle flips instantly with no delay and
+            // stays exactly as the user left it until they tap again.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                CallToggleButton(
+                    icon = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
+                    label = if (isMuted) "Unmute" else "Mute",
+                    active = isMuted,
+                    onClick = onToggleMute
+                )
+                CallToggleButton(
+                    icon = if (isSpeakerOn) Icons.Filled.VolumeUp else Icons.Filled.VolumeOff,
+                    label = "Speaker",
+                    active = isSpeakerOn,
+                    onClick = onToggleSpeaker
+                )
+            }
+
+            Spacer(Modifier.height(32.dp))
+
+            CallActionButton(
+                icon = Icons.Filled.CallEnd,
+                background = CallinColors.Danger,
+                label = "End",
+                onClick = onEndCall,
+                size = 64.dp
+            )
+
+            Spacer(Modifier.height(16.dp))
+        }
     }
 }
 
-private fun formatDuration(ms: Long): String {
-    val totalSeconds = (ms / 1000).coerceAtLeast(0)
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    val s = totalSeconds % 60
-    return if (h > 0) String.format("%02d:%02d:%02d", h, m, s) else String.format("%02d:%02d", m, s)
+// ─────────────────────────────────────────────────────────────
+// Ended — brief terminal screen shown for ~1.2s before the caller
+// is dropped back to wherever they were (see CallRoute's
+// LaunchedEffect above).
+// ─────────────────────────────────────────────────────────────
+
+@Composable
+fun EndedCallScreen(info: CallPeerInfo, reason: String) {
+    val label = when (reason) {
+        "declined" -> "Declined"
+        "cancelled" -> "Cancelled"
+        "ended" -> "Call ended"
+        else -> "Call ended"
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(CallinColors.Background),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            AvatarCircle(
+                avatarUrl = info.peerAvatarUrl,
+                displayName = info.peerDisplayName,
+                username = info.peerUsername,
+                size = 96.dp,
+                borderAlpha = 0.5f
+            )
+            Spacer(Modifier.height(18.dp))
+            Text(
+                text = info.peerDisplayName ?: info.peerUsername,
+                color = CallinColors.TextPrimary,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 20.sp
+            )
+            Spacer(Modifier.height(6.dp))
+            Text(
+                text = label,
+                color = CallinColors.TextSecondary,
+                fontSize = 14.sp
+            )
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Shared pieces
+// ─────────────────────────────────────────────────────────────
+
+/** Recomputes elapsed time once a second from a shared base
+ * timestamp — never a locally-running counter that could drift —
+ * so this is always in lockstep with the same field on the other
+ * device, since both read from the identical startedAtMillis. */
+@Composable
+private fun LiveCallTimer(startedAtMillis: Long) {
+    var elapsedSeconds by remember(startedAtMillis) {
+        mutableLongStateOf(((System.currentTimeMillis() - startedAtMillis) / 1000).coerceAtLeast(0))
+    }
+
+    LaunchedEffect(startedAtMillis) {
+        while (true) {
+            elapsedSeconds = ((System.currentTimeMillis() - startedAtMillis) / 1000).coerceAtLeast(0)
+            delay(1000)
+        }
+    }
+
+    val h = elapsedSeconds / 3600
+    val m = (elapsedSeconds % 3600) / 60
+    val sec = elapsedSeconds % 60
+    val text = if (h > 0) {
+        String.format("%02d:%02d:%02d", h, m, sec)
+    } else {
+        String.format("%02d:%02d", m, sec)
+    }
+
+    Text(
+        text = text,
+        color = CallinColors.TextSecondary,
+        fontSize = 15.sp,
+        fontWeight = FontWeight.Medium
+    )
+}
+
+@Composable
+private fun PulsingPeerAvatar(info: CallPeerInfo) {
+    val transition = rememberInfiniteTransition(label = "incoming_pulse")
+    val scale by transition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "incoming_pulse_scale"
+    )
+    val ringAlpha by transition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "incoming_pulse_ring"
+    )
+
+    Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier
+                .size(170.dp)
+                .clip(CircleShape)
+                .background(CallinColors.Success.copy(alpha = ringAlpha))
+        )
+        Box(
+            modifier = Modifier
+                .size(140.dp)
+                .clip(CircleShape)
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding((140.dp - 140.dp * scale) / -2)
+            ) {
+                AvatarCircle(
+                    avatarUrl = info.peerAvatarUrl,
+                    displayName = info.peerDisplayName,
+                    username = info.peerUsername,
+                    size = 140.dp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallActionButton(
+    icon: ImageVector,
+    background: Color,
+    label: String,
+    onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp = 56.dp,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(size)
+                .clip(CircleShape)
+                .background(background)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = Color.White,
+                modifier = Modifier.size(size * 0.45f)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(text = label, color = CallinColors.TextSecondary, fontSize = 12.sp)
+    }
+}
+
+@Composable
+private fun CallToggleButton(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val background = if (active) CallinColors.TextPrimary else CallinColors.TextSecondary.copy(alpha = 0.14f)
+    val tint = if (active) CallinColors.Background else CallinColors.TextPrimary
+
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(CircleShape)
+                .background(background)
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(imageVector = icon, contentDescription = label, tint = tint, modifier = Modifier.size(24.dp))
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(text = label, color = CallinColors.TextSecondary, fontSize = 12.sp)
+    }
 }
