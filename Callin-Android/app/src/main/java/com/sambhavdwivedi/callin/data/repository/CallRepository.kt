@@ -125,6 +125,29 @@ class CallRepository(
         }
     }
 
+    /** Called by CallinFirebaseMessagingService when a high-priority
+     * "incoming_call" push arrives while the signaling socket was dead
+     * (app killed/backgrounded) — see that file's class doc for why this
+     * exists. No-ops if a call already occupies this device by the time
+     * the push lands (e.g. the socket beat the push to it). */
+    fun onPushIncomingCall(callId: String, callerId: String) {
+        if (_state.value !is CallUiState.Idle) return
+        val peer = lookupPeer(callerId)
+        attemptStartedAtMillis = System.currentTimeMillis()
+        setState(
+            CallUiState.Incoming(
+                CallPeerInfo(
+                    callId = callId,
+                    peerId = callerId,
+                    peerUsername = peer?.first ?: "Unknown",
+                    peerDisplayName = peer?.second,
+                    peerAvatarUrl = peer?.third,
+                )
+            )
+        )
+        signalingClient.start()
+    }
+
     private fun setState(newState: CallUiState) {
         _state.value = newState
         notifier.update(newState)

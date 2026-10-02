@@ -43,3 +43,9 @@ data class PublicUserDto(
 data class UsersListResponse(
     val users: List<PublicUserDto>
 )
+
+@Serializable
+data class RegisterDeviceRequest(
+    val fcm_token: String,
+    val platform: String = "android"
+)

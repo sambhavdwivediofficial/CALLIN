@@ -405,6 +405,7 @@ fun CompleteProfileScreen(
                             .onSuccess {
                                 scope.launch {
                                     container.tokenStore.setProfileCompleted(true)
+                                    container.userRepository.registerDeviceToken()
                                     onCompleted()
                                 }
                             }

@@ -52,6 +52,7 @@ fun CallinNavHost() {
         } else if (container.tokenStore.getProfileCompleted()) {
             container.signalingClient.start()
             container.callRepository.start()
+            container.userRepository.registerDeviceToken()
             SessionState.LoggedIn
         } else {
             SessionState.NeedsProfile

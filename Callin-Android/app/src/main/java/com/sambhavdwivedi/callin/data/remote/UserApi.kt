@@ -4,8 +4,10 @@ import com.sambhavdwivedi.callin.data.remote.dto.AvatarResponse
 import com.sambhavdwivedi.callin.data.remote.dto.CheckUsernameResponse
 import com.sambhavdwivedi.callin.data.remote.dto.CompleteProfileRequest
 import com.sambhavdwivedi.callin.data.remote.dto.MeDto
+import com.sambhavdwivedi.callin.data.remote.dto.RegisterDeviceRequest
 import com.sambhavdwivedi.callin.data.remote.dto.UsersListResponse
 import okhttp3.MultipartBody
+import retrofit2.Response
 import retrofit2.http.Body
 import retrofit2.http.GET
 import retrofit2.http.Multipart
@@ -29,4 +31,9 @@ interface UserApi {
     @Multipart
     @POST("api/v1/users/me/avatar")
     suspend fun uploadAvatar(@Part avatar: MultipartBody.Part): AvatarResponse
+
+    // Backend returns 204 No Content on success — a bare Response<Unit>
+    // avoids the JSON converter choking on an empty body.
+    @POST("api/v1/users/me/device")
+    suspend fun registerDevice(@Body request: RegisterDeviceRequest): Response<Unit>
 }
