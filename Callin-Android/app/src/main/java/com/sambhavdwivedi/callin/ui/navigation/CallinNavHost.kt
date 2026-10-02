@@ -38,7 +38,7 @@ import com.sambhavdwivedi.callin.ui.theme.CallinColors
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
 @Composable
-fun CallinNavHost() {
+fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     val context = LocalContext.current
     val container = (context.applicationContext as CallinApplication).container
 
@@ -66,13 +66,26 @@ fun CallinNavHost() {
         }
     }
 
+    // On a normal manual open while a call is already ringing in the
+    // background, the FIRST non-Idle state is deliberately NOT
+    // auto-navigated to — the user lands on Home/whatever and sees
+    // the banner instead, and taps it themselves. Every state change
+    // AFTER that first one (e.g. the call progressing, or a brand
+    // new call arriving while the app is already in use) still
+    // auto-navigates immediately, same as before.
+    var suppressNextAutoNav = remember { mutableStateOf(skipInitialCallAutoNav) }
+
     LaunchedEffect(container) {
         container.callRepository.state.collect { callState ->
             val onCallRoute = currentRoute == Routes.Call
             when (callState) {
                 is CallUiState.Idle -> if (onCallRoute) navController.popBackStack()
                 is CallUiState.Outgoing, is CallUiState.Incoming, is CallUiState.Active, is CallUiState.Ended -> {
-                    if (!onCallRoute) navController.navigate(Routes.Call)
+                    if (suppressNextAutoNav.value) {
+                        suppressNextAutoNav.value = false
+                    } else if (!onCallRoute) {
+                        navController.navigate(Routes.Call)
+                    }
                 }
             }
         }
@@ -97,9 +110,11 @@ fun CallinNavHost() {
     val callState by container.callRepository.state.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Shown on every screen EXCEPT the Call screen itself.
         if (currentRoute != Routes.Call) {
             when (val s = callState) {
+                is CallUiState.Incoming -> InCallBanner(s.info, "Incoming call — tap to answer") {
+                    navController.navigate(Routes.Call)
+                }
                 is CallUiState.Outgoing -> InCallBanner(s.info, if (s.ringing) "Ringing..." else "Connecting...") {
                     navController.navigate(Routes.Call)
                 }
@@ -136,7 +151,10 @@ fun CallinNavHost() {
                     onCompleted = {
                         container.signalingClient.start()
                         container.callRepository.start()
-                        navController.navigate(Routes.Home) { popUpTo(Routes.CompleteProfile) { inclusive = true } }
+                        container.userRepository.registerDeviceToken()
+                        navController.navigate(Routes.Home) {
+                            popUpTo(Routes.CompleteProfile) { inclusive = true }
+                        }
                     }
                 )
             }
@@ -153,11 +171,19 @@ fun CallinNavHost() {
             }
             composable(Routes.Terms) { TermsScreen(onBack = { navController.popBackStack() }) }
             composable(Routes.Privacy) { PrivacyScreen(onBack = { navController.popBackStack() }) }
-            composable(Routes.MyQrCode) { MyQrCodeScreen(container = container, onBack = { navController.popBackStack() }) }
-            composable(Routes.ScanQrCode) {
-                ScanQrScreen(container = container, onBack = { navController.popBackStack() }, onAdded = { navController.popBackStack() })
+            composable(Routes.MyQrCode) {
+                MyQrCodeScreen(container = container, onBack = { navController.popBackStack() })
             }
-            composable(Routes.Notifications) { NotificationsScreen(container = container, onBack = { navController.popBackStack() }) }
+            composable(Routes.ScanQrCode) {
+                ScanQrScreen(
+                    container = container,
+                    onBack = { navController.popBackStack() },
+                    onAdded = { navController.popBackStack() }
+                )
+            }
+            composable(Routes.Notifications) {
+                NotificationsScreen(container = container, onBack = { navController.popBackStack() })
+            }
             composable(Routes.Call) {
                 CallRoute(container = container, onFinished = { })
             }

@@ -167,7 +167,7 @@ fun ProfileScreen(
                         containerColor = CallinColors.Background,
                         modifier = Modifier.border(
                             width = 0.01.dp,
-                            color = Color.LightGray,
+                            color = Color.White,
                             shape = RoundedCornerShape(6.dp)
                         )
                     ) {
@@ -175,12 +175,12 @@ fun ProfileScreen(
                             text = { Text("Terms of Service") },
                             onClick = { menuExpanded = false; onOpenTerms() }
                         )
-                        HorizontalDivider(thickness = 0.3.dp, color = Color.LightGray)
+                        HorizontalDivider(thickness = 0.3.dp, color = Color.White)
                         DropdownMenuItem(
                             text = { Text("Privacy Policy") },
                             onClick = { menuExpanded = false; onOpenPrivacy() }
                         )
-                        HorizontalDivider(thickness = 0.3.dp, color = Color.LightGray)
+                        HorizontalDivider(thickness = 0.3.dp, color = Color.White)
                         DropdownMenuItem(
                             text = { Text("Ringtone") },
                             onClick = { menuExpanded = false; showRingtoneSheet = true }

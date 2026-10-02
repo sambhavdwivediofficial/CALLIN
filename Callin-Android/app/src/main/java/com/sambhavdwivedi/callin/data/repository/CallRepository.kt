@@ -55,7 +55,7 @@ sealed interface CallUiState {
     data class Ended(val info: CallPeerInfo, val reason: String) : CallUiState
 }
 
-private const val RING_TIMEOUT_MS = 20_000L
+private const val RING_TIMEOUT_MS = 60_000L
 
 /**
  * Owns the whole call lifecycle.
