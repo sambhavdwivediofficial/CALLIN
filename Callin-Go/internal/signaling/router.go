@@ -85,7 +85,7 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 				callerInfo.AvatarURL = *u.AvatarURL
 			}
 		}
-		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, c.UserID, callerInfo)
+		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, callerInfo)
 	}
 
 	r.hub.SendToUser(c.UserID, out)
