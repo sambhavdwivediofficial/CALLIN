@@ -21,10 +21,6 @@ import (
 
 const fcmMessagingScope = "https://www.googleapis.com/auth/firebase.messaging"
 
-// FCMClient sends high-priority "incoming call" data messages
-// through Firebase Cloud Messaging's HTTP v1 API. It looks up the
-// recipient's registered device tokens itself, so the rest of the
-// backend only ever needs to pass a user ID.
 type FCMClient struct {
 	projectID   string
 	users       *user.Repository
@@ -33,11 +29,6 @@ type FCMClient struct {
 	logger      *slog.Logger
 }
 
-// NewFCMClient loads a Firebase service account JSON key file and
-// prepares an OAuth2 token source scoped to FCM. If
-// serviceAccountFile is empty, push notifications are disabled and
-// calls simply won't wake backgrounded devices — everything else
-// (signaling, in-app ringing) keeps working normally.
 func NewFCMClient(ctx context.Context, projectID, serviceAccountFile string, users *user.Repository, logger *slog.Logger) (*FCMClient, error) {
 	if serviceAccountFile == "" {
 		logger.Warn("FCM_SERVICE_ACCOUNT_FILE not set — incoming-call push notifications are disabled")
@@ -63,13 +54,19 @@ func NewFCMClient(ctx context.Context, projectID, serviceAccountFile string, use
 	}, nil
 }
 
-// NotifyIncomingCall pushes a wake-up notification to every device
-// the callee has registered. Failures are logged, not returned — a
-// failed push should never break call signaling for clients that
-// are still connected over the WebSocket.
-func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID, callerID string) {
+// CallerInfo is the caller's public identity, embedded directly in
+// the push payload so the receiving device can show the real name
+// and avatar even with a completely cold process and empty local
+// cache — it never has to guess or look anything up itself.
+type CallerInfo struct {
+	Username    string
+	DisplayName string
+	AvatarURL   string
+}
+
+func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID string, caller CallerInfo) {
 	if f.tokenSource == nil {
-		return // push disabled, see NewFCMClient
+		return
 	}
 
 	tokens, err := f.users.DeviceTokens(ctx, calleeID)
@@ -79,7 +76,7 @@ func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID, ca
 	}
 
 	for _, token := range tokens {
-		if err := f.sendCallPush(ctx, token, callID, callerID); err != nil {
+		if err := f.sendCallPush(ctx, token, callID, caller); err != nil {
 			f.logger.Error("sending FCM push", "user_id", calleeID, "error", err)
 		}
 	}
@@ -95,7 +92,7 @@ type fcmMessage struct {
 	} `json:"message"`
 }
 
-func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID, callerID string) error {
+func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID string, caller CallerInfo) error {
 	token, err := f.tokenSource.Token()
 	if err != nil {
 		return fmt.Errorf("getting oauth token: %w", err)
@@ -104,9 +101,13 @@ func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID, calle
 	var body fcmMessage
 	body.Message.Token = deviceToken
 	body.Message.Data = map[string]string{
-		"type":      "incoming_call",
-		"call_id":   callID,
-		"caller_id": callerID,
+		"type":                "incoming_call",
+		"call_id":             callID,
+		"caller_id":           caller.Username, // kept for backward compat if read elsewhere
+		"caller_user_id":      caller.Username,
+		"caller_username":     caller.Username,
+		"caller_display_name": caller.DisplayName,
+		"caller_avatar_url":   caller.AvatarURL,
 	}
 	body.Message.Android.Priority = "high"
 

@@ -80,7 +80,7 @@ func main() {
 
 	hub := signaling.NewHub(log)
 	callRegistry := call.NewRegistry()
-	router := signaling.NewRouter(hub, callRegistry, pool, fcmClient, log)
+	router := signaling.NewRouter(hub, callRegistry, pool, fcmClient, userRepo, log)
 
 	userHandler := user.NewHandler(userRepo, avatarStorage)
 	authHandler := auth.NewHandler(authService)

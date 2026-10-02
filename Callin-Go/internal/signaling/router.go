@@ -10,6 +10,7 @@ import (
 
 	"callin-go/internal/call"
 	"callin-go/internal/push"
+	"callin-go/internal/user"
 )
 
 type Router struct {
@@ -17,11 +18,12 @@ type Router struct {
 	calls  *call.Registry
 	pool   *pgxpool.Pool
 	pusher *push.FCMClient
+	users  *user.Repository
 	logger *slog.Logger
 }
 
-func NewRouter(hub *Hub, calls *call.Registry, pool *pgxpool.Pool, pusher *push.FCMClient, logger *slog.Logger) *Router {
-	return &Router{hub: hub, calls: calls, pool: pool, pusher: pusher, logger: logger}
+func NewRouter(hub *Hub, calls *call.Registry, pool *pgxpool.Pool, pusher *push.FCMClient, users *user.Repository, logger *slog.Logger) *Router {
+	return &Router{hub: hub, calls: calls, pool: pool, pusher: pusher, users: users, logger: logger}
 }
 
 func (r *Router) Handle(c *Client, msg Message) {
@@ -68,11 +70,24 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 	}
 
 	if delivered := r.hub.SendToUser(payload.CalleeID, out); !delivered {
-		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, c.UserID)
+		// Offline — wake them with a push carrying the caller's real
+		// identity, looked up here server-side (always available,
+		// never dependent on the callee's local cache being warm).
+		callerInfo := push.CallerInfo{}
+		if u, err := r.users.GetByID(context.Background(), c.UserID); err == nil {
+			if u.Username != nil {
+				callerInfo.Username = *u.Username
+			}
+			if u.DisplayName != nil {
+				callerInfo.DisplayName = *u.DisplayName
+			}
+			if u.AvatarURL != nil {
+				callerInfo.AvatarURL = *u.AvatarURL
+			}
+		}
+		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, c.UserID, callerInfo)
 	}
 
-	// Echo back to the caller so their UI can move from "dialing"
-	// to "ringing" with a confirmed call ID.
 	r.hub.SendToUser(c.UserID, out)
 }
 
@@ -81,13 +96,11 @@ func (r *Router) handleTransition(c *Client, msg Message, to call.Status) {
 		c.sendError("bad_request", "call_id is required")
 		return
 	}
-
 	activeCall, err := r.calls.Transition(msg.CallID, to)
 	if err != nil {
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
-
 	r.relay(c, activeCall, msg)
 }
 
@@ -96,13 +109,11 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 		c.sendError("bad_request", "call_id is required")
 		return
 	}
-
 	activeCall, err := r.calls.Transition(msg.CallID, to)
 	if err != nil {
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
-
 	r.relay(c, activeCall, msg)
 
 	go func() {
@@ -114,19 +125,11 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 	}()
 }
 
-// relay sends the state-transition message to BOTH parties — the
-// other side (obviously) and back to the sender too. This is
-// CRITICAL: without echoing to the sender, the side that pressed
-// Accept never learns their own request succeeded, so their local
-// UI never leaves the "Incoming" screen and never reaches Active —
-// which is exactly what made calls appear to hang on "Connecting..."
-// forever, even between two devices on the same network.
 func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 	other := activeCall.CalleeID
 	if c.UserID == activeCall.CalleeID {
 		other = activeCall.CallerID
 	}
-
 	out := Message{
 		Type:      msg.Type,
 		CallID:    activeCall.ID,
@@ -136,7 +139,7 @@ func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 	r.hub.SendToUser(other, out)
-	r.hub.SendToUser(c.UserID, out) // <-- the fix: echo to sender
+	r.hub.SendToUser(c.UserID, out)
 }
 
 func (r *Router) forward(c *Client, msg Message) {
