@@ -12,15 +12,18 @@ import com.sambhavdwivedi.callin.data.repository.CallUiState
 
 /**
  * Owns the one system notification CALLIN ever shows for a call.
- * On [update]: Incoming gets a full-screen intent (rings and shows
- * over the lock screen, just like a real incoming call) with
- * Accept/Decline actions; Outgoing/Active gets a plain ongoing
- * notification with a Hang up action; Idle/Ended cancels it.
  *
- * Tapping the notification (or its full-screen intent) simply opens
- * MainActivity — CallinNavHost already navigates to the Call route
- * reactively based on CallRepository.state, so no extra routing
- * logic is needed here.
+ * Incoming gets a full-screen intent (wakes the screen and shows
+ * over the lock screen, just like a real incoming call) with
+ * Accept/Decline actions. Outgoing/Active gets an ongoing
+ * notification with a live chronometer once the call is Active, and
+ * a Hang up action. Idle/Ended cancels it.
+ *
+ * Tapping the notification body opens MainActivity — CallinNavHost
+ * routes to the Call screen reactively based on CallRepository's
+ * state, and MainActivity skips its splash animation whenever a call
+ * is already in progress (see AppRoot), so this always lands
+ * directly on the Call screen, never the normal launch flow.
  */
 class CallNotifier(private val context: Context) {
     companion object {
@@ -44,8 +47,16 @@ class CallNotifier(private val context: Context) {
     fun update(state: CallUiState) {
         when (state) {
             is CallUiState.Incoming -> showIncoming(state.info)
-            is CallUiState.Outgoing -> showOngoing(state.info, if (state.ringing) "Ringing..." else "Connecting...")
-            is CallUiState.Active -> showOngoing(state.info, "Ongoing call")
+            is CallUiState.Outgoing -> showOngoing(
+                state.info,
+                statusText = if (state.ringing) "Ringing..." else "Connecting...",
+                startedAtMillis = null
+            )
+            is CallUiState.Active -> showOngoing(
+                state.info,
+                statusText = "Ongoing call",
+                startedAtMillis = state.startedAtMillis
+            )
             else -> notificationManager.cancel(NOTIFICATION_ID)
         }
     }
@@ -82,8 +93,12 @@ class CallNotifier(private val context: Context) {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 
-    private fun showOngoing(info: CallPeerInfo, statusText: String) {
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+    /** [startedAtMillis] non-null (call is Active) switches the
+     * notification to a live running chronometer — the exact
+     * elapsed-time display asked for — instead of a static status
+     * line. Outgoing (ringing/connecting) has no timer yet. */
+    private fun showOngoing(info: CallPeerInfo, statusText: String, startedAtMillis: Long?) {
+        val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.sym_call_outgoing)
             .setContentTitle(peerName(info))
             .setContentText(statusText)
@@ -92,7 +107,11 @@ class CallNotifier(private val context: Context) {
             .setContentIntent(contentPendingIntent())
             .setOngoing(true)
             .addAction(0, "Hang up", actionPendingIntent(ACTION_HANGUP))
-            .build()
-        notificationManager.notify(NOTIFICATION_ID, notification)
+
+        if (startedAtMillis != null) {
+            builder.setUsesChronometer(true).setWhen(startedAtMillis)
+        }
+
+        notificationManager.notify(NOTIFICATION_ID, builder.build())
     }
 }
