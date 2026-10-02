@@ -1,11 +1,14 @@
 package com.sambhavdwivedi.callin.data.repository
 
 import android.content.Context
+import android.content.Intent
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
+import androidx.core.content.ContextCompat
+import com.sambhavdwivedi.callin.core.call.CallForegroundService
 import com.sambhavdwivedi.callin.core.call.CallNotifier
 import com.sambhavdwivedi.callin.core.network.SignalingClient
 import com.sambhavdwivedi.callin.core.ringtone.RingtoneAssets
@@ -55,31 +58,28 @@ sealed interface CallUiState {
 private const val RING_TIMEOUT_MS = 20_000L
 
 /**
- * Owns the whole call lifecycle. Two important ownership decisions
- * fixed in this version, both around the same root bug — speaker
- * and mute silently doing nothing while a call is still ringing:
+ * Owns the whole call lifecycle.
  *
- * 1. [audioManager] is held directly here, not reached through
- *    [webRtc]. [webRtc] (the actual PeerConnection + mic track) is
- *    only ever created once a call is accepted — see [ensureWebRtc]
- *    — so routing toggleSpeaker()/toggleMute() through `webRtc?.set…`
- *    meant every tap before that point was a silent no-op on a null
- *    reference: the StateFlow still flipped (so the icon looked like
- *    it worked), but the actual audio route never changed. Now
- *    [toggleSpeaker] talks to AudioManager unconditionally, so it
- *    works identically whether the call is ringing, connecting, or
- *    active, on either side (caller or callee), exactly as asked:
- *    full control the instant the icon is tapped, independent of
- *    whether the other side has picked up yet.
- * 2. Audio mode is switched to MODE_IN_COMMUNICATION as soon as a
- *    call attempt starts (ringing), not only once WebRTC connects —
- *    so a speaker toggle during ringing is audible immediately
- *    instead of waiting for the peer connection.
- * 3. Whenever [webRtc] is (re)created, the current [isMuted] value
- *    is applied to it immediately (see [ensureWebRtc]) — previously
- *    only speaker state was reapplied, so a mute chosen before the
- *    mic track existed was silently dropped the moment that track
- *    was created.
+ * Audio routing is STATE-dependent, not just speaker-preference
+ * dependent — this is the actual fix in this version:
+ *
+ * - [CallUiState.Incoming] (ringing, not yet answered): audio stays
+ *   in the system's normal ringer mode and the ringtone is forced
+ *   onto the loudspeaker with vibration — rings out loud by default,
+ *   like a real phone, independent of any earpiece/speaker choice
+ *   left over from a previous call.
+ * - [CallUiState.Outgoing] / [CallUiState.Active]: audio switches to
+ *   call-communication mode and follows [_isSpeakerOn], which starts
+ *   false (earpiece) every single time and only changes when the
+ *   user explicitly taps the speaker icon — this is exactly why
+ *   answering from the notification's Accept action (which never
+ *   touches [_isSpeakerOn]) lands the connected call on the
+ *   earpiece, not the speaker.
+ *
+ * [CallForegroundService] is started for the whole lifetime of any
+ * non-Idle state and stopped the moment it returns to Idle — this is
+ * what keeps the process (socket + WebRTC audio) alive while the
+ * screen is off or another app is on top.
  */
 class CallRepository(
     context: Context,
@@ -101,8 +101,9 @@ class CallRepository(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
-    // Real phones start on the earpiece; speaker only turns on when
-    // the user explicitly taps it — never on by default.
+    // Default OFF (earpiece) for the CONNECTED call — only changes
+    // when the user taps the speaker icon. The incoming RINGTONE is
+    // separate and always loud; see updateAudioRoute.
     private val _isSpeakerOn = MutableStateFlow(false)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
 
@@ -127,9 +128,8 @@ class CallRepository(
 
     /** Called by CallinFirebaseMessagingService when a high-priority
      * "incoming_call" push arrives while the signaling socket was dead
-     * (app killed/backgrounded) — see that file's class doc for why this
-     * exists. No-ops if a call already occupies this device by the time
-     * the push lands (e.g. the socket beat the push to it). */
+     * (app killed/backgrounded). No-ops if a call already occupies
+     * this device by the time the push lands. */
     fun onPushIncomingCall(callId: String, callerId: String) {
         if (_state.value !is CallUiState.Idle) return
         val peer = lookupPeer(callerId)
@@ -155,17 +155,36 @@ class CallRepository(
         updateSounds(newState)
         updateProximityLock(newState)
         manageRingTimeout(newState)
+        updateForegroundService(newState)
     }
 
-    // ---- audio routing: owned here, independent of whether webRtc
-    // exists yet — this is the actual fix ----
+    // ---- foreground service: keeps the process (socket + WebRTC)
+    // alive while the screen is off or another app is on top ----
+
+    private fun updateForegroundService(state: CallUiState) {
+        val intent = Intent(appContext, CallForegroundService::class.java)
+        if (state !is CallUiState.Idle) {
+            ContextCompat.startForegroundService(appContext, intent)
+        } else {
+            appContext.stopService(intent)
+        }
+    }
+
+    // ---- audio routing ----
 
     private fun updateAudioRoute(state: CallUiState) {
         when (state) {
-            is CallUiState.Outgoing, is CallUiState.Incoming, is CallUiState.Active -> {
-                // Switch into call-audio mode the instant a call
-                // attempt exists, not only once WebRTC connects —
-                // so speaker toggling during ringing is audible.
+            is CallUiState.Incoming -> {
+                // Ringing, not yet answered: normal ringer routing,
+                // forced loud — the default "rings out loud with
+                // vibration" behavior, independent of any earpiece/
+                // speaker choice from a previous call.
+                if (audioManager.mode != AudioManager.MODE_RINGTONE) {
+                    audioManager.mode = AudioManager.MODE_RINGTONE
+                }
+                audioManager.isSpeakerphoneOn = true
+            }
+            is CallUiState.Outgoing, is CallUiState.Active -> {
                 if (audioManager.mode != AudioManager.MODE_IN_COMMUNICATION) {
                     audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 }
@@ -420,22 +439,12 @@ class CallRepository(
         if (_state.value is CallUiState.Ended) setState(CallUiState.Idle)
     }
 
-    /** Works identically whether a call is ringing, connecting, or
-     * active — the mic track is enabled/disabled now if it exists,
-     * and whatever value is current gets (re)applied the instant
-     * [ensureWebRtc] creates the track, so nothing is ever lost by
-     * muting before the call connects. */
     fun toggleMute() {
         val next = !_isMuted.value
         _isMuted.value = next
         webRtc?.setMuted(next)
     }
 
-    /** Talks to AudioManager directly — never gated on whether
-     * [webRtc] exists yet, which is exactly what was broken before:
-     * speaker now flips the instant it's tapped, on either side of
-     * the call, ringing or connected, and stays exactly as the user
-     * left it until they tap it again. */
     fun toggleSpeaker() {
         val next = !_isSpeakerOn.value
         _isSpeakerOn.value = next
@@ -493,9 +502,6 @@ class CallRepository(
         else -> null
     }
 
-    /** Creating the track is the one moment mute state can be lost
-     * if not reapplied — a user may have muted while still ringing,
-     * before any WebRtcClient existed to carry that choice. */
     private fun ensureWebRtc(): WebRtcClient {
         val existing = webRtc
         if (existing != null) return existing
