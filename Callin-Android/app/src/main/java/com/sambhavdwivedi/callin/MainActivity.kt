@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -43,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import com.sambhavdwivedi.callin.ui.theme.CallinTheme
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import com.sambhavdwivedi.callin.data.repository.CallUiState
 import com.sambhavdwivedi.callin.ui.navigation.CallinNavHost
 
 class MainActivity : ComponentActivity() {
@@ -63,11 +66,51 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun AppRoot() {
-    var showSplash by remember { mutableStateOf(true) }
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
+    val container = (context.applicationContext as CallinApplication).container
+
+    // Skip the splash animation entirely whenever a call is already
+    // ringing/connecting/active by the time this Activity is
+    // created — tapping the incoming-call notification, the
+    // full-screen intent waking the device, or a cold start right
+    // after an FCM push all land here. CallinNavHost's own call-state
+    // watcher then routes straight to the Call screen with no extra
+    // wiring needed.
+    var showSplash by remember {
+        mutableStateOf(container.callRepository.state.value is CallUiState.Idle)
+    }
+
+    val callState by container.callRepository.state.collectAsState()
+
+    // Lets the Call screen draw directly over the lock screen and
+    // wake the display the instant a call is ringing — and ONLY
+    // then; the flags are cleared the moment the call ends so the
+    // rest of the app never bypasses the lock screen.
+    LaunchedEffect(callState) {
+        val activity = context as? android.app.Activity ?: return@LaunchedEffect
+        val isIdle = callState is CallUiState.Idle
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+            activity.setShowWhenLocked(!isIdle)
+            activity.setTurnScreenOn(!isIdle)
+        } else {
+            @Suppress("DEPRECATION")
+            if (!isIdle) {
+                activity.window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                )
+            } else {
+                activity.window.clearFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                            android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                            android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                )
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
-        val container = (context.applicationContext as com.sambhavdwivedi.callin.CallinApplication).container
         val token = container.tokenStore.getAccessToken()
         if (!token.isNullOrBlank()) {
             val imageLoader = coil.Coil.imageLoader(context)
@@ -136,79 +179,27 @@ fun SplashScreen(onFinished: () -> Unit) {
     val easeOutBack = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)
 
     LaunchedEffect(Unit) {
-        // halo
-        launch {
-            haloAlpha.animateTo(0.68f, tween(700, easing = FastOutSlowInEasing))
-        }
-        launch {
-            haloScale.animateTo(1f, tween(900, easing = easeOutBack))
-        }
+        launch { haloAlpha.animateTo(0.68f, tween(700, easing = FastOutSlowInEasing)) }
+        launch { haloScale.animateTo(1f, tween(900, easing = easeOutBack)) }
 
-        // blob — starts almost immediately
-        launch {
-            delay(80)
-            blobAlpha.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
-        }
-        launch {
-            delay(80)
-            blobRotY.animateTo(0f, tween(950, easing = easeOutBack))
-        }
-        launch {
-            delay(80)
-            blobScale.animateTo(1f, tween(950, easing = easeOutBack))
-        }
+        launch { delay(80); blobAlpha.animateTo(1f, tween(650, easing = FastOutSlowInEasing)) }
+        launch { delay(80); blobRotY.animateTo(0f, tween(950, easing = easeOutBack)) }
+        launch { delay(80); blobScale.animateTo(1f, tween(950, easing = easeOutBack)) }
 
-        // pod — a bit after the blob
-        launch {
-            delay(420)
-            podAlpha.animateTo(1f, tween(500, easing = FastOutSlowInEasing))
-        }
-        launch {
-            delay(420)
-            podRotY.animateTo(0f, tween(900, easing = easeOutBack))
-        }
-        launch {
-            delay(420)
-            podScale.animateTo(1f, tween(900, easing = easeOutBack))
-        }
-        launch {
-            delay(420)
-            podOffsetX.animateTo(0f, tween(900, easing = easeOutBack))
-        }
-        launch {
-            delay(420)
-            podOffsetY.animateTo(0f, tween(900, easing = easeOutBack))
-        }
+        launch { delay(420); podAlpha.animateTo(1f, tween(500, easing = FastOutSlowInEasing)) }
+        launch { delay(420); podRotY.animateTo(0f, tween(900, easing = easeOutBack)) }
+        launch { delay(420); podScale.animateTo(1f, tween(900, easing = easeOutBack)) }
+        launch { delay(420); podOffsetX.animateTo(0f, tween(900, easing = easeOutBack)) }
+        launch { delay(420); podOffsetY.animateTo(0f, tween(900, easing = easeOutBack)) }
 
-        // wifi arcs — pop in one after another
-        launch {
-            delay(900)
-            arcInAlpha.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
-        }
-        launch {
-            delay(900)
-            arcInScale.animateTo(1f, tween(420, easing = easeOutBack))
-        }
-        launch {
-            delay(1060)
-            arcOutAlpha.animateTo(1f, tween(420, easing = FastOutSlowInEasing))
-        }
-        launch {
-            delay(1060)
-            arcOutScale.animateTo(1f, tween(420, easing = easeOutBack))
-        }
+        launch { delay(900); arcInAlpha.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
+        launch { delay(900); arcInScale.animateTo(1f, tween(420, easing = easeOutBack)) }
+        launch { delay(1060); arcOutAlpha.animateTo(1f, tween(420, easing = FastOutSlowInEasing)) }
+        launch { delay(1060); arcOutScale.animateTo(1f, tween(420, easing = easeOutBack)) }
 
-        // wordmark
-        launch {
-            delay(1550)
-            wordAlpha.animateTo(1f, tween(650, easing = FastOutSlowInEasing))
-        }
-        launch {
-            delay(1550)
-            wordOffsetY.animateTo(0f, tween(650, easing = easeOutBack))
-        }
+        launch { delay(1550); wordAlpha.animateTo(1f, tween(650, easing = FastOutSlowInEasing)) }
+        launch { delay(1550); wordOffsetY.animateTo(0f, tween(650, easing = easeOutBack)) }
 
-        // hold, then hand off to the real app
         delay(2900)
         onFinished()
     }
@@ -219,8 +210,6 @@ fun SplashScreen(onFinished: () -> Unit) {
             .background(Ink0),
         contentAlignment = Alignment.Center
     ) {
-
-        // drifting glow orbs
         Box(
             Modifier
                 .size(260.dp)
@@ -242,35 +231,10 @@ fun SplashScreen(onFinished: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.statusBarsPadding()
         ) {
-
             Box(
                 modifier = Modifier.size(190.dp),
                 contentAlignment = Alignment.Center
             ) {
-
-                // halo glow behind the logo
-//                Box(
-//                    Modifier
-//                        .size(280.dp)
-//                        .graphicsLayer {
-//                            alpha = haloAlpha.value
-//                            scaleX = haloScale.value
-//                            scaleY = haloScale.value
-//                        }
-//                        .clip(CircleShape)
-//                        .background(
-//                            Brush.radialGradient(
-//                                colors = listOf(
-//                                    Beam.copy(alpha = 0.55f),
-//                                    Beam.copy(alpha = 0.14f),
-//                                    Color.Transparent
-//                                )
-//                            )
-//                        )
-//                        .blur(22.dp)
-//                )
-
-                // blob (main logo shape)
                 Image(
                     painter = painterResource(id = R.drawable.logo_blob),
                     contentDescription = null,
@@ -286,7 +250,6 @@ fun SplashScreen(onFinished: () -> Unit) {
                         }
                 )
 
-                // pod (small capsule)
                 Image(
                     painter = painterResource(id = R.drawable.logo_pod),
                     contentDescription = null,
@@ -304,7 +267,6 @@ fun SplashScreen(onFinished: () -> Unit) {
                         }
                 )
 
-                // inner wifi arc
                 Image(
                     painter = painterResource(id = R.drawable.logo_arc_in),
                     contentDescription = null,
@@ -318,7 +280,6 @@ fun SplashScreen(onFinished: () -> Unit) {
                         }
                 )
 
-                // outer wifi arc
                 Image(
                     painter = painterResource(id = R.drawable.logo_arc_out),
                     contentDescription = null,
@@ -333,7 +294,6 @@ fun SplashScreen(onFinished: () -> Unit) {
                 )
             }
 
-            // Callin
             Text(
                 text = "",
                 color = WordColor,
@@ -352,31 +312,21 @@ fun SplashScreen(onFinished: () -> Unit) {
     }
 }
 
-// ---------- your existing welcome screen, unchanged ----------
-
 private val WelcomeFont = FontFamily(
-    Font(
-        resId = R.font.montserrat_extra_bold,
-        weight = FontWeight.ExtraBold
-    )
+    Font(resId = R.font.montserrat_extra_bold, weight = FontWeight.ExtraBold)
 )
 
 private val CallinFont = FontFamily(
-    Font(
-        resId = R.font.great_vibes_regular,
-        weight = FontWeight.Normal
-    )
+    Font(resId = R.font.great_vibes_regular, weight = FontWeight.Normal)
 )
 
 @Composable
 fun WelcomeScreen() {
-
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
     ) {
-
         Text(
             text = "Welcome",
             modifier = Modifier
