@@ -1,6 +1,7 @@
 package com.sambhavdwivedi.callin.core.permissions
 
 import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -8,25 +9,36 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import com.sambhavdwivedi.callin.core.network.TokenStore
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 
+private val REQUIRED_PERMISSIONS: List<String> = buildList {
+    add(Manifest.permission.RECORD_AUDIO)
+    add(Manifest.permission.CAMERA)
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        add(Manifest.permission.POST_NOTIFICATIONS)
+    }
+}
+
+private const val RECHECK_INTERVAL_MILLIS = 4L * 24 * 60 * 60 * 1000 // 4 days
+
 /**
- * Requests every runtime permission CALLIN needs, one system dialog
- * at a time, the very first time the user reaches Home after
- * completing their profile — mic first (needed for any call at
- * all), then notifications (Android 13+, needed to alert about
- * incoming calls), then camera (needed only for QR scanning).
- *
- * Runs exactly once per install: the outcome (granted or denied) is
- * never re-asked automatically — tracked in TokenStore so even a
- * cold restart doesn't repeat it. If the user denies one, later
- * screens that actually need it (call, scan) prompt again through
- * Android's normal per-feature request flow, same as any other app.
+ * Every time Home appears, checks which of CALLIN's required
+ * permissions are still missing. If any are missing AND it's been
+ * 4+ days since the last check (or this is the very first check),
+ * re-prompts — one system dialog at a time — for exactly the
+ * missing ones. Once every permission is granted, this becomes a
+ * no-op forever (no interval even needed to check: a fully-granted
+ * state has nothing left to ask for). Call is denied → user is not
+ * nagged every single app open, only every 4 days, matching what
+ * Android itself does for its own permission re-prompt cadence.
  */
 @Composable
 fun RequestAppPermissionsOnce(tokenStore: TokenStore) {
+    val context = LocalContext.current
     val pendingResume = remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val launcher = rememberLauncherForActivityResult(
@@ -37,7 +49,14 @@ fun RequestAppPermissionsOnce(tokenStore: TokenStore) {
     }
 
     LaunchedEffect(Unit) {
-        if (tokenStore.getPermissionsRequested()) return@LaunchedEffect
+        val missing = REQUIRED_PERMISSIONS.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isEmpty()) return@LaunchedEffect
+
+        val lastCheck = tokenStore.getLastPermissionCheckMillis()
+        val now = System.currentTimeMillis()
+        if (lastCheck != 0L && now - lastCheck < RECHECK_INTERVAL_MILLIS) return@LaunchedEffect
 
         suspend fun requestOne(permission: String) {
             suspendCancellableCoroutine<Unit> { cont ->
@@ -46,12 +65,10 @@ fun RequestAppPermissionsOnce(tokenStore: TokenStore) {
             }
         }
 
-        requestOne(Manifest.permission.RECORD_AUDIO)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            requestOne(Manifest.permission.POST_NOTIFICATIONS)
+        for (permission in missing) {
+            requestOne(permission)
         }
-        requestOne(Manifest.permission.CAMERA)
 
-        tokenStore.setPermissionsRequested(true)
+        tokenStore.setLastPermissionCheckMillis(now)
     }
 }

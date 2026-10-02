@@ -1,11 +1,14 @@
 package com.sambhavdwivedi.callin.ui.home
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -13,13 +16,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.CallMade
 import androidx.compose.material.icons.automirrored.filled.CallReceived
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +38,7 @@ import com.sambhavdwivedi.callin.core.storage.CallDirection
 import com.sambhavdwivedi.callin.core.storage.RecentCallEntry
 import com.sambhavdwivedi.callin.ui.components.AvatarCircle
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -39,19 +47,49 @@ import java.util.Locale
 @Composable
 fun RecentsScreen(container: AppContainer) {
     val entries by container.recentCallsStore.entries.collectAsState()
+    var isRefreshing by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
+    // Already preloaded during the splash (see MainActivity.AppRoot),
+    // so entries is non-null almost immediately — this just makes
+    // sure it's current if this is the very first collection.
     LaunchedEffect(Unit) {
-        container.recentCallsStore.getAll() // also prunes anything past 30 days
+        if (entries == null) container.recentCallsStore.getAll()
     }
 
     val allEntries = entries.orEmpty()
     val (today, yesterday, older) = remember(allEntries) { groupByDay(allEntries) }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        Row(modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Icon(Icons.Filled.History, contentDescription = null, tint = CallinColors.TextPrimary)
             Spacer(Modifier.width(8.dp))
             Text("Recents", color = CallinColors.TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
+            Spacer(Modifier.weight(1f))
+            Icon(
+                imageVector = Icons.Filled.Refresh,
+                contentDescription = "Refresh",
+                tint = CallinColors.TextSecondary,
+                modifier = Modifier
+                    .size(22.dp)
+                    .clickable(enabled = !isRefreshing) {
+                        isRefreshing = true
+                        scope.launch {
+                            container.recentCallsStore.getAll()
+                            isRefreshing = false
+                        }
+                    }
+            )
+        }
+
+        if (entries == null) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                com.sambhavdwivedi.callin.ui.components.PulseBarsLoader(barColor = CallinColors.TextSecondary)
+            }
+            return@Column
         }
 
         if (allEntries.isEmpty()) {
