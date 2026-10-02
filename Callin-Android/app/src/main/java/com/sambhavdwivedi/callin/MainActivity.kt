@@ -53,32 +53,46 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
         super.onCreate(savedInstanceState)
-
         enableEdgeToEdge()
+
+        val openCall = intent?.getBooleanExtra(
+            com.sambhavdwivedi.callin.core.call.CallNotifier.EXTRA_OPEN_CALL, false
+        ) ?: false
 
         setContent {
             CallinTheme {
-                AppRoot()
+                AppRoot(skipSplash = openCall)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        // If the activity was already running (warm start) and the
+        // user taps the notification again, jump straight to the
+        // call screen without re-running onCreate.
+        if (intent.getBooleanExtra(com.sambhavdwivedi.callin.core.call.CallNotifier.EXTRA_OPEN_CALL, false)) {
+            val container = (applicationContext as CallinApplication).container
+            // CallinNavHost's own state watcher already routes to the
+            // Call screen whenever state is non-Idle — nothing
+            // else to do here.
         }
     }
 }
 
 @Composable
-fun AppRoot() {
+fun AppRoot(skipSplash: Boolean) {
     val context = LocalContext.current
     val container = (context.applicationContext as CallinApplication).container
 
-    // Skip the splash animation entirely whenever a call is already
-    // ringing/connecting/active by the time this Activity is
-    // created — tapping the incoming-call notification, the
-    // full-screen intent waking the device, or a cold start right
-    // after an FCM push all land here. CallinNavHost's own call-state
-    // watcher then routes straight to the Call screen with no extra
-    // wiring needed.
-    var showSplash by remember {
-        mutableStateOf(container.callRepository.state.value is CallUiState.Idle)
-    }
+    // Splash is skipped ONLY when launched via the notification's
+    // full-screen/content intent (skipSplash = true). A normal
+    // manual app-icon open always shows the splash and lands on
+    // Home as usual — even if a call happens to be ringing in the
+    // background at that moment — and the in-app toast banner
+    // (CallinNavHost) is what lets the user jump into it from there.
+    var showSplash by remember { mutableStateOf(!skipSplash) }
 
     val callState by container.callRepository.state.collectAsState()
 
@@ -132,6 +146,7 @@ fun AppRoot() {
                         .onSuccess { list -> list.forEach { warm(it.from_avatar_url) } }
                 }
                 launch { container.connectionRepository.refreshHistory() }
+                launch { container.recentCallsStore.getAll() } // preloads Recents too
             }
         }
     }
@@ -139,7 +154,7 @@ fun AppRoot() {
     if (showSplash) {
         SplashScreen(onFinished = { showSplash = false })
     } else {
-        CallinNavHost()
+        com.sambhavdwivedi.callin.ui.navigation.CallinNavHost(skipInitialCallAutoNav = !skipSplash)
     }
 }
 

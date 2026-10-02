@@ -32,6 +32,7 @@ class CallNotifier(private val context: Context) {
         const val ACTION_ACCEPT = "com.sambhavdwivedi.callin.action.ACCEPT_CALL"
         const val ACTION_REJECT = "com.sambhavdwivedi.callin.action.REJECT_CALL"
         const val ACTION_HANGUP = "com.sambhavdwivedi.callin.action.HANGUP_CALL"
+        const val EXTRA_OPEN_CALL = "com.sambhavdwivedi.callin.extra.OPEN_CALL"
     }
 
     private val notificationManager = context.getSystemService(NotificationManager::class.java)
@@ -64,6 +65,7 @@ class CallNotifier(private val context: Context) {
     private fun contentPendingIntent(): PendingIntent {
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra(EXTRA_OPEN_CALL, true)
         }
         return PendingIntent.getActivity(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
