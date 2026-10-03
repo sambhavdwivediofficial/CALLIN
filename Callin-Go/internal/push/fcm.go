@@ -8,11 +8,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
-	"io"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -22,6 +22,10 @@ import (
 
 const fcmMessagingScope = "https://www.googleapis.com/auth/firebase.messaging"
 
+// FCMClient sends high-priority "incoming call" data messages
+// through Firebase Cloud Messaging's HTTP v1 API. It looks up the
+// recipient's registered device tokens itself, so the rest of the
+// backend only ever needs to pass a user ID.
 type FCMClient struct {
 	projectID   string
 	users       *user.Repository
@@ -30,6 +34,11 @@ type FCMClient struct {
 	logger      *slog.Logger
 }
 
+// NewFCMClient loads a Firebase service account JSON key file and
+// prepares an OAuth2 token source scoped to FCM. If
+// serviceAccountFile is empty, push notifications are disabled and
+// calls simply won't wake backgrounded devices — everything else
+// (signaling, in-app ringing) keeps working normally.
 func NewFCMClient(ctx context.Context, projectID, serviceAccountFile string, users *user.Repository, logger *slog.Logger) (*FCMClient, error) {
 	if serviceAccountFile == "" {
 		logger.Warn("FCM_SERVICE_ACCOUNT_FILE not set — incoming-call push notifications are disabled")
@@ -65,9 +74,13 @@ type CallerInfo struct {
 	AvatarURL   string
 }
 
+// NotifyIncomingCall pushes a wake-up notification to every device
+// the callee has registered. Failures are logged, not returned — a
+// failed push should never break call signaling for clients that
+// are still connected over the WebSocket.
 func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID string, caller CallerInfo) {
 	if f.tokenSource == nil {
-		return
+		return // push disabled, see NewFCMClient
 	}
 
 	tokens, err := f.users.DeviceTokens(ctx, calleeID)
@@ -76,8 +89,13 @@ func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID str
 		return
 	}
 
+	if len(tokens) == 0 {
+		f.logger.Warn("no registered device tokens for user — push cannot be sent", "user_id", calleeID)
+		return
+	}
+
 	for _, token := range tokens {
-		if err := f.sendCallPush(ctx, token, callID, caller.Username, caller); err != nil {
+		if err := f.sendCallPush(ctx, token, callID, caller); err != nil {
 			f.logger.Error("sending FCM push", "user_id", calleeID, "error", err)
 		}
 	}
@@ -93,7 +111,7 @@ type fcmMessage struct {
 	} `json:"message"`
 }
 
-func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID, callerID string, info CallerInfo) error {
+func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID string, caller CallerInfo) error {
 	token, err := f.tokenSource.Token()
 	if err != nil {
 		return fmt.Errorf("getting oauth token: %w", err)
@@ -102,12 +120,12 @@ func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID, calle
 	var body fcmMessage
 	body.Message.Token = deviceToken
 	body.Message.Data = map[string]string{
-		"type":                 "incoming_call",
-		"call_id":              callID,
-		"caller_id":            callerID,
-		"caller_username":      info.Username,
-		"caller_display_name":  info.DisplayName,
-		"caller_avatar_url":    info.AvatarURL,
+		"type":                "incoming_call",
+		"call_id":             callID,
+		"caller_id":           caller.Username,
+		"caller_username":     caller.Username,
+		"caller_display_name": caller.DisplayName,
+		"caller_avatar_url":   caller.AvatarURL,
 	}
 	body.Message.Android.Priority = "high"
 
@@ -132,10 +150,22 @@ func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID, calle
 
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
-		// Logging the body is what actually tells us WHY it's a 404 —
-		// "project not found" vs "requested entity was not found"
-		// (invalid/stale token) are both 404s but need different fixes.
-		return fmt.Errorf("FCM returned status %d, project=%s: %s", resp.StatusCode, f.projectID, string(respBody))
+		// The full response body is what actually tells us WHY it's
+		// a 404 — "Requested entity was not found" (stale/invalid
+		// registration token) and "project not found" (wrong
+		// FCM_PROJECT_ID / mismatched service account) are both 404s
+		// but need completely different fixes. Printing just the
+		// status code (as this used to) makes that impossible to
+		// tell apart.
+		return fmt.Errorf("FCM returned status %d, project=%s, token_prefix=%s: %s",
+			resp.StatusCode, f.projectID, tokenPrefix(deviceToken), string(respBody))
 	}
 	return nil
+}
+
+func tokenPrefix(token string) string {
+	if len(token) > 12 {
+		return token[:12] + "..."
+	}
+	return token
 }
