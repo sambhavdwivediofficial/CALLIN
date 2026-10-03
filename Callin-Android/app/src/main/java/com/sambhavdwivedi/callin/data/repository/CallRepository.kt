@@ -319,6 +319,25 @@ class CallRepository(
             SignalingType.WEBRTC_OFFER -> onOffer(msg)
             SignalingType.WEBRTC_ANSWER -> onAnswer(msg)
             SignalingType.WEBRTC_CANDIDATE -> onRemoteCandidate(msg)
+            SignalingType.ERROR -> onSignalingError(msg)
+            else -> Unit
+        }
+    }
+
+    /** The server rejected something (e.g. the other person is still
+     * marked busy from a stale call). Previously this was silently
+     * ignored, which is exactly what left the caller stuck on
+     * "Connecting..." forever with zero feedback and the next tap on
+     * the call button doing nothing (because [startCall] no-ops unless
+     * state is Idle). Now any in-progress call attempt is dropped back
+     * to Idle immediately so the user can see it failed and try again. */
+    private fun onSignalingError(msg: SignalingMessage) {
+        android.util.Log.w("CallRepository", "signaling error received: ${msg.payload}")
+        when (_state.value) {
+            is CallUiState.Outgoing, is CallUiState.Incoming -> {
+                cleanupWebRtc()
+                setState(CallUiState.Idle)
+            }
             else -> Unit
         }
     }

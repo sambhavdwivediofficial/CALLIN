@@ -21,6 +21,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,15 +40,11 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
-import androidx.compose.runtime.collectAsState
 
-/** Every CALLIN QR code encodes this scheme so the scanner can tell
- * a genuine CALLIN contact code apart from any other QR code. */
 private const val CALLIN_QR_SCHEME = "callin://user/"
 
 fun callinQrContentFor(username: String): String = "$CALLIN_QR_SCHEME$username"
 
-/** Extracts the username from a scanned CALLIN QR payload, or null if it isn't one. */
 fun usernameFromCallinQr(rawValue: String?): String? {
     if (rawValue == null || !rawValue.startsWith(CALLIN_QR_SCHEME)) return null
     val username = rawValue.removePrefix(CALLIN_QR_SCHEME).trim()
@@ -66,31 +63,30 @@ private fun buildQrBitmap(content: String, sizePx: Int): Bitmap {
 }
 
 /**
- * Shows the signed-in user's own username encoded as a QR code, so
- * another CALLIN user can scan it (via ScanQrScreen) to send them a
- * connection request instantly. Rendered on a white card since QR
- * codes need light-on-dark contrast reversed from the rest of the app.
+ * Shows the signed-in user's own username as a QR code. Reads from
+ * [AppContainer.userRepository]'s cached [me] StateFlow first — the
+ * loader only ever shows on the very first time this (or Profile)
+ * has been opened since the app process started; every visit after
+ * that, cached data renders instantly while getMe() refreshes it
+ * silently in the background. Killing the app fully resets the
+ * cache, so the loader correctly reappears on the next cold start.
  */
 @Composable
 fun MyQrCodeScreen(container: AppContainer, onBack: () -> Unit) {
-    val cached = container.userRepository.me.collectAsState().value
-    var username by remember { mutableStateOf(cached?.username) }
-    var displayName by remember { mutableStateOf(cached?.display_name) }
-    var isLoading by remember { mutableStateOf(cached == null) }
+    val me by container.userRepository.me.collectAsState()
+    var isLoading by remember { mutableStateOf(me == null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    
+
     LaunchedEffect(Unit) {
-        if (cached == null) {
-            container.userRepository.getMe()
-                .onSuccess { me ->
-                    username = me.username
-                    displayName = me.display_name
-                    if (me.username.isNullOrBlank()) errorMessage = "Your profile doesn't have a username yet."
-                }
-                .onFailure { errorMessage = it.message ?: "Could not load your QR code." }
-        }
+        container.userRepository.getMe()
+            .onFailure {
+                if (me == null) errorMessage = it.message ?: "Could not load your QR code."
+            }
         isLoading = false
     }
+
+    val username = me?.username
+    val displayName = me?.display_name
 
     Box(
         modifier = Modifier
@@ -128,11 +124,11 @@ fun MyQrCodeScreen(container: AppContainer, onBack: () -> Unit) {
                 contentAlignment = Alignment.Center
             ) {
                 when {
-                    isLoading -> {
+                    isLoading && me == null -> {
                         PulseBarsLoader(barColor = CallinColors.TextSecondary)
                     }
 
-                    errorMessage != null -> {
+                    me == null && errorMessage != null -> {
                         Text(
                             text = errorMessage!!,
                             color = CallinColors.TextSecondary,
@@ -141,13 +137,20 @@ fun MyQrCodeScreen(container: AppContainer, onBack: () -> Unit) {
                         )
                     }
 
-                    username != null -> {
-                        val qrContent = remember(username) { callinQrContentFor(username!!) }
+                    username.isNullOrBlank() -> {
+                        Text(
+                            text = "Your profile doesn't have a username yet.",
+                            color = CallinColors.TextSecondary,
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+
+                    else -> {
+                        val qrContent = remember(username) { callinQrContentFor(username) }
                         val bitmap = remember(qrContent) { buildQrBitmap(qrContent, 720) }
 
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(20.dp))

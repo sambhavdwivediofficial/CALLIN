@@ -2,7 +2,6 @@ package com.sambhavdwivedi.callin.ui.home
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
@@ -52,26 +51,25 @@ import java.util.Locale
 @Composable
 fun RecentsScreen(container: AppContainer) {
     val entries by container.recentCallsStore.entries.collectAsState()
-    var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    var isRefreshing by remember { mutableStateOf(false) }
     val rotation = remember { Animatable(0f) }
 
-    // Already preloaded during the splash (see MainActivity.AppRoot),
-    // so entries is non-null almost immediately — this just makes
-    // sure it's current if this is the very first collection.
     LaunchedEffect(Unit) {
-        if (entries == null) container.recentCallsStore.getAll()
+        container.recentCallsStore.getAll() // also prunes anything past 30 days
     }
 
-    LaunchedEffect(isRefreshing) {
-        if (isRefreshing) {
-            rotation.snapTo(0f)
+    fun refresh() {
+        if (isRefreshing) return
+        isRefreshing = true
+        scope.launch {
+            launch { container.recentCallsStore.getAll() }
             rotation.animateTo(
-                360f,
-                animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing))
+                rotation.value + 360f,
+                animationSpec = tween(600, easing = LinearEasing)
             )
-        } else {
             rotation.snapTo(0f)
+            isRefreshing = false
         }
     }
 
@@ -94,21 +92,8 @@ fun RecentsScreen(container: AppContainer) {
                 modifier = Modifier
                     .size(22.dp)
                     .graphicsLayer { rotationZ = rotation.value }
-                    .clickable(enabled = !isRefreshing) {
-                        isRefreshing = true
-                        scope.launch {
-                            container.recentCallsStore.getAll()
-                            isRefreshing = false
-                        }
-                    }
+                    .clickable(enabled = !isRefreshing) { refresh() }
             )
-        }
-
-        if (entries == null) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                com.sambhavdwivedi.callin.ui.components.PulseBarsLoader(barColor = CallinColors.TextSecondary)
-            }
-            return@Column
         }
 
         if (allEntries.isEmpty()) {
