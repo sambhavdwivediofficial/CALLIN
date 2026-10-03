@@ -1,5 +1,5 @@
 // Package push sends incoming-call wake-up notifications to
-// offline or backgrounded devices via Firebase Cloud Messaging's
+// offline or unreachable devices via Firebase Cloud Messaging's
 // HTTP v1 API.
 package push
 
@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"golang.org/x/oauth2"
@@ -22,10 +23,6 @@ import (
 
 const fcmMessagingScope = "https://www.googleapis.com/auth/firebase.messaging"
 
-// FCMClient sends high-priority "incoming call" data messages
-// through Firebase Cloud Messaging's HTTP v1 API. It looks up the
-// recipient's registered device tokens itself, so the rest of the
-// backend only ever needs to pass a user ID.
 type FCMClient struct {
 	projectID   string
 	users       *user.Repository
@@ -34,11 +31,6 @@ type FCMClient struct {
 	logger      *slog.Logger
 }
 
-// NewFCMClient loads a Firebase service account JSON key file and
-// prepares an OAuth2 token source scoped to FCM. If
-// serviceAccountFile is empty, push notifications are disabled and
-// calls simply won't wake backgrounded devices — everything else
-// (signaling, in-app ringing) keeps working normally.
 func NewFCMClient(ctx context.Context, projectID, serviceAccountFile string, users *user.Repository, logger *slog.Logger) (*FCMClient, error) {
 	if serviceAccountFile == "" {
 		logger.Warn("FCM_SERVICE_ACCOUNT_FILE not set — incoming-call push notifications are disabled")
@@ -64,10 +56,6 @@ func NewFCMClient(ctx context.Context, projectID, serviceAccountFile string, use
 	}, nil
 }
 
-// CallerInfo is the caller's public identity, embedded directly in
-// the push payload so the receiving device can show the real name
-// and avatar even with a completely cold process and empty local
-// cache — it never has to guess or look anything up itself.
 type CallerInfo struct {
 	Username    string
 	DisplayName string
@@ -75,12 +63,15 @@ type CallerInfo struct {
 }
 
 // NotifyIncomingCall pushes a wake-up notification to every device
-// the callee has registered. Failures are logged, not returned — a
-// failed push should never break call signaling for clients that
-// are still connected over the WebSocket.
+// the callee has registered. A token FCM reports as permanently
+// dead (NotRegistered/UNREGISTERED) is pruned from the database
+// immediately — standard FCM housekeeping, and what stops a stale
+// token from one old install from silently swallowing every future
+// call attempt to that user while a valid token sits unused right
+// next to it.
 func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID string, caller CallerInfo) {
 	if f.tokenSource == nil {
-		return // push disabled, see NewFCMClient
+		return
 	}
 
 	tokens, err := f.users.DeviceTokens(ctx, calleeID)
@@ -95,8 +86,16 @@ func (f *FCMClient) NotifyIncomingCall(ctx context.Context, calleeID, callID str
 	}
 
 	for _, token := range tokens {
-		if err := f.sendCallPush(ctx, token, callID, caller); err != nil {
-			f.logger.Error("sending FCM push", "user_id", calleeID, "error", err)
+		unregistered, sendErr := f.sendCallPush(ctx, token, callID, caller)
+		if sendErr != nil {
+			f.logger.Error("sending FCM push", "user_id", calleeID, "error", sendErr)
+		}
+		if unregistered {
+			if delErr := f.users.DeleteDeviceToken(ctx, calleeID, token); delErr != nil {
+				f.logger.Error("pruning dead device token", "user_id", calleeID, "error", delErr)
+			} else {
+				f.logger.Info("pruned dead device token", "user_id", calleeID, "token_prefix", tokenPrefix(token))
+			}
 		}
 	}
 }
@@ -111,10 +110,24 @@ type fcmMessage struct {
 	} `json:"message"`
 }
 
-func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID string, caller CallerInfo) error {
+// fcmErrorResponse mirrors FCM's HTTP v1 error body — enough to
+// reliably tell "this token is permanently dead" apart from every
+// other failure (wrong project, auth failure, transient server
+// error), which must NOT have their token deleted.
+type fcmErrorResponse struct {
+	Error struct {
+		Status  string `json:"status"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// sendCallPush returns (unregistered, err): unregistered is true
+// only when FCM has explicitly said this exact token will never
+// work again.
+func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID string, caller CallerInfo) (bool, error) {
 	token, err := f.tokenSource.Token()
 	if err != nil {
-		return fmt.Errorf("getting oauth token: %w", err)
+		return false, fmt.Errorf("getting oauth token: %w", err)
 	}
 
 	var body fcmMessage
@@ -131,36 +144,36 @@ func (f *FCMClient) sendCallPush(ctx context.Context, deviceToken, callID string
 
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return fmt.Errorf("encoding FCM payload: %w", err)
+		return false, fmt.Errorf("encoding FCM payload: %w", err)
 	}
 
 	url := fmt.Sprintf("https://fcm.googleapis.com/v1/projects/%s/messages:send", f.projectID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return fmt.Errorf("building FCM request: %w", err)
+		return false, fmt.Errorf("building FCM request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token.AccessToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := f.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("calling FCM: %w", err)
+		return false, fmt.Errorf("calling FCM: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
-		// The full response body is what actually tells us WHY it's
-		// a 404 — "Requested entity was not found" (stale/invalid
-		// registration token) and "project not found" (wrong
-		// FCM_PROJECT_ID / mismatched service account) are both 404s
-		// but need completely different fixes. Printing just the
-		// status code (as this used to) makes that impossible to
-		// tell apart.
-		return fmt.Errorf("FCM returned status %d, project=%s, token_prefix=%s: %s",
+
+		var parsed fcmErrorResponse
+		_ = json.Unmarshal(respBody, &parsed)
+		unregistered := parsed.Error.Status == "NOT_FOUND" ||
+			strings.EqualFold(parsed.Error.Message, "NotRegistered") ||
+			strings.Contains(string(respBody), "UNREGISTERED")
+
+		return unregistered, fmt.Errorf("FCM returned status %d, project=%s, token_prefix=%s: %s",
 			resp.StatusCode, f.projectID, tokenPrefix(deviceToken), string(respBody))
 	}
-	return nil
+	return false, nil
 }
 
 func tokenPrefix(token string) string {

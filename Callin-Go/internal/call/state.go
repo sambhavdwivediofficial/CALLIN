@@ -122,15 +122,6 @@ func (r *Registry) ActiveCallForUser(userID string) (*ActiveCall, bool) {
 	return c, c != nil
 }
 
-// EndAllForUser force-ends and removes from the registry any call
-// userID is currently part of (ringing, connecting, or active), and
-// returns it so the caller can notify the other party and persist
-// history. Without this, a user whose socket drops mid-call (app
-// killed, crash, lost network) stays marked "busy" in this
-// in-memory map forever — every future call attempt involving
-// either party then fails with ErrUserBusy until the server process
-// restarts. This is called the moment a user's last open connection
-// closes.
 func (r *Registry) EndAllForUser(userID string) []*ActiveCall {
 	r.mu.Lock()
 	defer r.mu.Unlock()

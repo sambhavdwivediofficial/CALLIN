@@ -80,11 +80,11 @@ func main() {
 
 	hub := signaling.NewHub(log)
 	callRegistry := call.NewRegistry()
-	router := signaling.NewRouter(hub, callRegistry, pool, fcmClient, userRepo, log)
+	router := signaling.NewRouter(hub, callRegistry, fcmClient, userRepo, log)
 
 	userHandler := user.NewHandler(userRepo, avatarStorage)
 	authHandler := auth.NewHandler(authService)
-	callHandler := call.NewHandler(pool)
+	// callHandler := call.NewHandler(pool)
 
 	connectionRepo := connection.NewRepository(pool)
 	connectionHandler := connection.NewHandler(connectionRepo)
@@ -135,7 +135,7 @@ func main() {
 	mux.Handle("POST /api/v1/connections/{id}/respond", requireAuth(http.HandlerFunc(connectionHandler.Respond)))
 	mux.Handle("GET /api/v1/connections", requireAuth(http.HandlerFunc(connectionHandler.List)))
 
-	mux.Handle("GET /api/v1/calls", requireAuth(http.HandlerFunc(callHandler.History)))
+	// mux.Handle("GET /api/v1/calls", requireAuth(http.HandlerFunc(callHandler.History)))
 
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  4096,
