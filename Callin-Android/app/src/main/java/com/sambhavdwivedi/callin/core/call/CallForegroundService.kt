@@ -8,19 +8,22 @@ import androidx.core.app.NotificationCompat
 /**
  * Keeps the app's process alive — and the WebSocket/WebRTC session
  * with it — for as long as a call is ringing or active, regardless
- * of whether the screen is locked or the app is in the background.
- * This is what makes a locked-screen or backgrounded incoming/
- * ongoing call keep ringing, keep receiving audio, and keep the
- * notification visible exactly like a real phone call — a normal
- * background process has no such guarantee and can be paused or
- * killed by the OS at any moment.
+ * of whether the screen is locked, another app is on top, or the
+ * user swipes CALLIN away from Recents.
  *
- * CallRepository starts this the instant a call state becomes
- * non-Idle and stops it the instant it returns to Idle. The actual
- * notification content (name, Accept/Decline, Hang up) is owned by
- * CallNotifier, which posts to the same notification ID — so this
- * placeholder is only ever visible for a few milliseconds before
- * CallNotifier's real content replaces it.
+ * This MUST be declared in AndroidManifest.xml with
+ * android:stopWithTask="false" — without that manifest entry,
+ * Android can't find the component and startForegroundService()
+ * throws, which was silently killing call reliability project-wide:
+ * every attempt to start this service crashed right after the
+ * ringtone/notification fired, explaining the ringtone cutting out
+ * and the notification buttons appearing to do nothing.
+ *
+ * [onTaskRemoved] is overridden with an explicit empty body as a
+ * guard against ever adding a stopSelf() here by accident — with
+ * stopWithTask="false" properly declared, Android already keeps this
+ * running when the task is swiped from Recents; this is just
+ * documentation-as-code for that intent.
  */
 class CallForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -35,5 +38,10 @@ class CallForegroundService : Service() {
             .build()
         startForeground(CallNotifier.NOTIFICATION_ID, notification)
         return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // Deliberately empty — see class doc comment.
+        super.onTaskRemoved(rootIntent)
     }
 }

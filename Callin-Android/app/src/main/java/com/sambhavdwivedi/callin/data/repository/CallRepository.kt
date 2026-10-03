@@ -2,6 +2,8 @@ package com.sambhavdwivedi.callin.data.repository
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.PowerManager
@@ -60,26 +62,31 @@ private const val RING_TIMEOUT_MS = 60_000L
 /**
  * Owns the whole call lifecycle.
  *
- * Audio routing is STATE-dependent, not just speaker-preference
- * dependent — this is the actual fix in this version:
+ * Audio routing is STATE-dependent: Incoming rings loud on the
+ * speaker regardless of any earlier earpiece/speaker choice;
+ * Outgoing/Active follow [_isSpeakerOn], which starts false
+ * (earpiece) every time and only changes when the user taps the
+ * speaker icon.
  *
- * - [CallUiState.Incoming] (ringing, not yet answered): audio stays
- *   in the system's normal ringer mode and the ringtone is forced
- *   onto the loudspeaker with vibration — rings out loud by default,
- *   like a real phone, independent of any earpiece/speaker choice
- *   left over from a previous call.
- * - [CallUiState.Outgoing] / [CallUiState.Active]: audio switches to
- *   call-communication mode and follows [_isSpeakerOn], which starts
- *   false (earpiece) every single time and only changes when the
- *   user explicitly taps the speaker icon — this is exactly why
- *   answering from the notification's Accept action (which never
- *   touches [_isSpeakerOn]) lands the connected call on the
- *   earpiece, not the speaker.
+ * [CallForegroundService] runs for the whole lifetime of any
+ * non-Idle state — this is what keeps the process (socket + WebRTC
+ * audio) alive while the screen is off, another app is on top, or
+ * the task is swiped from Recents (see the service's manifest entry,
+ * stopWithTask="false").
  *
- * [CallForegroundService] is started for the whole lifetime of any
- * non-Idle state and stopped the moment it returns to Idle — this is
- * what keeps the process (socket + WebRTC audio) alive while the
- * screen is off or another app is on top.
+ * LATENCY FIX — "early offer": for the caller, WebRTC setup (peer
+ * connection + local audio track + SDP offer + ICE gathering) now
+ * starts the INSTANT the call is placed (in [startCall]), not after
+ * the callee accepts. Ringing normally lasts several seconds while
+ * the other person notices their phone — that was previously wasted
+ * time; now the slow part (offer + ICE gathering, often 2-5 seconds
+ * with a TURN relay) overlaps with it, so by the time the callee
+ * taps Accept, the offer is usually already sitting ready to send.
+ * Any ICE candidates discovered during this early window are
+ * BUFFERED (not sent) until the callee's peer connection actually
+ * exists (which only happens once they accept) — sending earlier
+ * would just have them silently dropped on the callee's end. The
+ * buffer flushes the instant the offer is sent.
  */
 class CallRepository(
     context: Context,
@@ -101,9 +108,6 @@ class CallRepository(
     private val _isMuted = MutableStateFlow(false)
     val isMuted: StateFlow<Boolean> = _isMuted.asStateFlow()
 
-    // Default OFF (earpiece) for the CONNECTED call — only changes
-    // when the user taps the speaker icon. The incoming RINGTONE is
-    // separate and always loud; see updateAudioRoute.
     private val _isSpeakerOn = MutableStateFlow(false)
     val isSpeakerOn: StateFlow<Boolean> = _isSpeakerOn.asStateFlow()
 
@@ -112,8 +116,15 @@ class CallRepository(
     private var started = false
     private var attemptStartedAtMillis = 0L
 
+    // Early-offer latency optimization (caller side) — see class doc.
+    private var preparedOfferSdp: SessionDescription? = null
+    private var readyToSendCandidates = false
+    private val pendingLocalCandidates = mutableListOf<IceCandidate>()
+
     private var ringbackPlayer: MediaPlayer? = null
     private var ringtonePlayer: MediaPlayer? = null
+    private var ringbackFocusRequest: AudioFocusRequest? = null
+    private var ringtoneFocusRequest: AudioFocusRequest? = null
     private var vibrator: Vibrator? = null
     private var ringTimeoutJob: Job? = null
     private var proximityWakeLock: PowerManager.WakeLock? = null
@@ -126,10 +137,6 @@ class CallRepository(
         }
     }
 
-    /** Called by CallinFirebaseMessagingService when a high-priority
-     * "incoming_call" push arrives while the signaling socket was dead
-     * (app killed/backgrounded). No-ops if a call already occupies
-     * this device by the time the push lands. */
     fun onPushIncomingCall(
         callId: String,
         callerId: String,
@@ -164,27 +171,27 @@ class CallRepository(
         updateForegroundService(newState)
     }
 
-    // ---- foreground service: keeps the process (socket + WebRTC)
-    // alive while the screen is off or another app is on top ----
-
     private fun updateForegroundService(state: CallUiState) {
-        val intent = Intent(appContext, CallForegroundService::class.java)
-        if (state !is CallUiState.Idle) {
-            ContextCompat.startForegroundService(appContext, intent)
-        } else {
-            appContext.stopService(intent)
+        // Defensive try/catch: even with the manifest fix in place,
+        // some OEM skins impose extra background-start restrictions.
+        // We never want a failure here to crash the whole call
+        // pipeline — which is exactly what used to happen before this
+        // was wrapped (see the manifest fix explanation).
+        try {
+            val intent = Intent(appContext, CallForegroundService::class.java)
+            if (state !is CallUiState.Idle) {
+                ContextCompat.startForegroundService(appContext, intent)
+            } else {
+                appContext.stopService(intent)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("CallRepository", "foreground service start/stop failed", t)
         }
     }
-
-    // ---- audio routing ----
 
     private fun updateAudioRoute(state: CallUiState) {
         when (state) {
             is CallUiState.Incoming -> {
-                // Ringing, not yet answered: normal ringer routing,
-                // forced loud — the default "rings out loud with
-                // vibration" behavior, independent of any earpiece/
-                // speaker choice from a previous call.
                 if (audioManager.mode != AudioManager.MODE_RINGTONE) {
                     audioManager.mode = AudioManager.MODE_RINGTONE
                 }
@@ -240,12 +247,22 @@ class CallRepository(
 
     private fun startRingback() {
         if (ringbackPlayer != null) return
+
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        ringbackFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attributes)
+            .build().also { audioManager.requestAudioFocus(it) }
+
         ringbackPlayer = runCatching {
             MediaPlayer().apply {
                 val afd = appContext.assets.openFd("ringback.mp3")
                 setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                 afd.close()
-                setAudioStreamType(AudioManager.STREAM_VOICE_CALL)
+                setAudioAttributes(attributes)
                 isLooping = true
                 prepare()
                 start()
@@ -256,10 +273,28 @@ class CallRepository(
     private fun stopRingback() {
         ringbackPlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
         ringbackPlayer = null
+        ringbackFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        ringbackFocusRequest = null
     }
 
     private fun startIncomingAlert() {
         if (ringtonePlayer != null) return
+
+        val attributes = AudioAttributes.Builder()
+            .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+            .build()
+
+        // Requesting audio focus for the ringtone stream is what makes
+        // ringing reliable regardless of what else currently holds
+        // focus — without this, the MediaPlayer can "succeed" from
+        // our point of view yet produce no audible sound on some
+        // devices. This is the fix for "sometimes it rings, sometimes
+        // it doesn't".
+        ringtoneFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(attributes)
+            .build().also { audioManager.requestAudioFocus(it) }
+
         scope.launch {
             val fileName = ringtoneStore.getSelected()
                 ?: RingtoneAssets.list(appContext).firstOrNull()?.fileName
@@ -271,7 +306,7 @@ class CallRepository(
                         setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
                         afd.close()
                     }
-                    setAudioStreamType(AudioManager.STREAM_RING)
+                    setAudioAttributes(attributes)
                     isLooping = true
                     prepare()
                     start()
@@ -286,6 +321,8 @@ class CallRepository(
     private fun stopIncomingAlert() {
         ringtonePlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
         ringtonePlayer = null
+        ringtoneFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        ringtoneFocusRequest = null
         vibrator?.cancel()
         vibrator = null
     }
@@ -306,8 +343,6 @@ class CallRepository(
         }
     }
 
-    // ---- signaling ----
-
     private fun handleMessage(msg: SignalingMessage) {
         val myId = myUserId()
         when (msg.type) {
@@ -324,13 +359,6 @@ class CallRepository(
         }
     }
 
-    /** The server rejected something (e.g. the other person is still
-     * marked busy from a stale call). Previously this was silently
-     * ignored, which is exactly what left the caller stuck on
-     * "Connecting..." forever with zero feedback and the next tap on
-     * the call button doing nothing (because [startCall] no-ops unless
-     * state is Idle). Now any in-progress call attempt is dropped back
-     * to Idle immediately so the user can see it failed and try again. */
     private fun onSignalingError(msg: SignalingMessage) {
         android.util.Log.w("CallRepository", "signaling error received: ${msg.payload}")
         when (_state.value) {
@@ -376,8 +404,18 @@ class CallRepository(
 
         if (isCaller) {
             val client = ensureWebRtc()
-            client.start(IceServers.defaults())
-            client.createOffer { sdp -> sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, sdp) }
+            val offer = preparedOfferSdp
+            if (offer != null) {
+                // Already created while ringing — send instantly
+                // instead of creating a fresh one now.
+                sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, offer)
+            } else {
+                // Fallback for the rare case accept arrived before the
+                // offer finished preparing — behaves exactly as before.
+                client.start(IceServers.defaults())
+                client.createOffer { sdp -> sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, sdp) }
+            }
+            flushPendingCandidates()
         }
         setState(CallUiState.Active(info, startedAt))
     }
@@ -411,12 +449,14 @@ class CallRepository(
         webRtc?.addRemoteIceCandidate(IceCandidate(c.sdpMid, c.sdpMLineIndex, c.candidate))
     }
 
-    // ---- outgoing ----
-
     fun startCall(peerId: String, peerUsername: String, peerDisplayName: String?, peerAvatarUrl: String?) {
         if (_state.value !is CallUiState.Idle) return
         isCaller = true
         attemptStartedAtMillis = System.currentTimeMillis()
+        preparedOfferSdp = null
+        readyToSendCandidates = false
+        pendingLocalCandidates.clear()
+
         setState(
             CallUiState.Outgoing(
                 CallPeerInfo(UUID.randomUUID().toString(), peerId, peerUsername, peerDisplayName, peerAvatarUrl),
@@ -425,6 +465,11 @@ class CallRepository(
         )
         val payload = json.encodeToJsonElement(CallInvitePayload.serializer(), CallInvitePayload(peerId))
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_INVITE, to = peerId, payload = payload))
+
+        // Latency optimization — see class doc comment.
+        val client = ensureWebRtc()
+        client.start(IceServers.defaults())
+        client.createOffer { sdp -> preparedOfferSdp = sdp }
     }
 
     fun cancelCall() {
@@ -435,11 +480,10 @@ class CallRepository(
         setState(CallUiState.Idle)
     }
 
-    // ---- incoming ----
-
     fun acceptCall() {
         val info = (_state.value as? CallUiState.Incoming)?.info ?: return
         isCaller = false
+        readyToSendCandidates = true // no early phase on the callee side, send immediately
         ensureWebRtc().start(IceServers.defaults())
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_ACCEPT, callId = info.callId, to = info.peerId))
     }
@@ -449,8 +493,6 @@ class CallRepository(
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_REJECT, callId = info.callId, to = info.peerId))
         setState(CallUiState.Idle)
     }
-
-    // ---- active ----
 
     fun endCall() {
         val info = currentInfo() ?: return
@@ -475,8 +517,6 @@ class CallRepository(
         _isSpeakerOn.value = next
         audioManager.isSpeakerphoneOn = next
     }
-
-    // ---- local call history ----
 
     private fun recordCallEnd(info: CallPeerInfo, reason: String) {
         val current = _state.value
@@ -518,8 +558,6 @@ class CallRepository(
         }
     }
 
-    // ---- helpers ----
-
     private fun currentInfo(): CallPeerInfo? = when (val s = _state.value) {
         is CallUiState.Outgoing -> s.info
         is CallUiState.Incoming -> s.info
@@ -534,18 +572,33 @@ class CallRepository(
         val created = WebRtcClient(
             context = appContext,
             onLocalIceCandidate = { candidate ->
-                val info = currentInfo() ?: return@WebRtcClient
-                val payload = json.encodeToJsonElement(
-                    IceCandidatePayload.serializer(),
-                    IceCandidatePayload(candidate.sdp, candidate.sdpMid ?: "", candidate.sdpMLineIndex)
-                )
-                signalingClient.send(SignalingMessage(type = SignalingType.WEBRTC_CANDIDATE, to = info.peerId, payload = payload))
+                if (readyToSendCandidates) {
+                    sendCandidate(candidate)
+                } else {
+                    pendingLocalCandidates.add(candidate)
+                }
             },
             onIceStateChanged = { },
         )
         webRtc = created
         created.setMuted(_isMuted.value)
         return created
+    }
+
+    private fun sendCandidate(candidate: IceCandidate) {
+        val info = currentInfo() ?: return
+        val payload = json.encodeToJsonElement(
+            IceCandidatePayload.serializer(),
+            IceCandidatePayload(candidate.sdp, candidate.sdpMid ?: "", candidate.sdpMLineIndex)
+        )
+        signalingClient.send(SignalingMessage(type = SignalingType.WEBRTC_CANDIDATE, to = info.peerId, payload = payload))
+    }
+
+    private fun flushPendingCandidates() {
+        readyToSendCandidates = true
+        val toSend = pendingLocalCandidates.toList()
+        pendingLocalCandidates.clear()
+        toSend.forEach { sendCandidate(it) }
     }
 
     private fun sendSdp(type: String, to: String, sdp: SessionDescription) {
@@ -564,5 +617,8 @@ class CallRepository(
         _isSpeakerOn.value = false
         isCaller = false
         attemptStartedAtMillis = 0L
+        preparedOfferSdp = null
+        readyToSendCandidates = false
+        pendingLocalCandidates.clear()
     }
 }

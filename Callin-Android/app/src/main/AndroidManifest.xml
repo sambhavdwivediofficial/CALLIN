@@ -42,7 +42,22 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <receiver android:name=".core.call.CallActionReceiver" android:exported="false" />
+
+        <!-- CRITICAL FIX: this service was missing entirely before —
+             every call to startForegroundService(CallForegroundService)
+             was silently failing, crashing CallRepository.setState()
+             right after the ringtone/notification fired. This single
+             missing declaration explains most of the unreliable-call
+             symptoms. stopWithTask="false" is what makes a call survive
+             the user swiping CALLIN out of Recents. -->
+        <service
+            android:name=".core.call.CallForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="phoneCall"
+            android:stopWithTask="false" />
+
         <service
             android:name=".core.push.CallinFirebaseMessagingService"
             android:exported="false">

@@ -39,31 +39,32 @@ import com.sambhavdwivedi.callin.ui.theme.CallinColors
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
 /**
- * Decides where the user lands right after the splash animation:
- * Login if there's no session, CompleteProfile if their Google
- * account hasn't finished onboarding, Home otherwise.
+ * Decides where the user lands right after the splash animation, and
+ * reacts to CallRepository's state to drive the in-call banner / Call
+ * screen.
  *
- * [skipInitialCallAutoNav]: when the app is opened manually (not via
- * a notification tap) while a call is already ringing in the
- * background, the FIRST non-Idle call state is deliberately NOT
- * auto-navigated to — the user lands on Home/whatever and sees the
- * slim banner instead, and taps it themselves if they want the full
- * Call screen. Every state change AFTER that first one (the call
- * progressing, or a brand-new call arriving while the app is already
- * open) still auto-navigates immediately — this is what makes
- * "open app → tap a contact → call → straight to Call screen" work
- * while still letting someone casually re-open the app without being
- * yanked onto a screen they didn't ask for.
+ * CRITICAL FIX: the call-state collector used to be a plain
+ * `LaunchedEffect(container) { ... }` that started collecting
+ * immediately, regardless of whether [sessionState] had resolved
+ * yet. If an FCM push had already set CallRepository's state to
+ * Incoming/Active (e.g. this app process was launched BY tapping the
+ * call notification), this collector would receive that value
+ * instantly via StateFlow's replay — often before the async
+ * sessionState resolution (DataStore reads) had finished — and call
+ * `navController.navigate(Routes.Call)` before the NavHost below
+ * (only composed once sessionState != Loading) had attached its
+ * graph. Navigating onto a route that doesn't exist yet either
+ * throws or silently no-ops depending on timing — which is exactly
+ * "app opens, gets stuck for a moment, then goes back to nothing".
+ * Because the crash tore down the whole process, it's also why the
+ * ringtone (owned by the same process) abruptly cut out right after.
  *
- * currentRoute is read via [currentBackStackEntryAsState], the
- * official Compose Navigation API — its state updates in the SAME
- * recomposition pass as [androidx.navigation.NavController.navigate],
- * so the banner-vs-Call-screen decision below never lags a frame
- * behind the actual navigation. A manual
- * `currentBackStackEntryFlow.collect()` (the old approach) updates
- * one frame late, which is exactly what caused the banner to flash
- * visibly for an instant before the Call screen took over right
- * after starting a call from Contacts.
+ * Fix: key the collector on [sessionState] and skip entirely while
+ * it's Loading. Once it resolves, the effect restarts — and because
+ * this is a StateFlow (which always replays its latest value to a
+ * new collector), it immediately "catches up" to whatever call state
+ * was already set, so a call that arrived during the loading window
+ * is never missed, just handled a beat later, once it's safe.
  */
 @Composable
 fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
@@ -90,16 +91,12 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    // On a normal manual open while a call is already ringing in the
-    // background, the FIRST non-Idle state is deliberately NOT
-    // auto-navigated to — the user lands on Home/whatever and sees
-    // the banner instead, and taps it themselves. Every state change
-    // AFTER that first one (e.g. the call progressing, or a brand
-    // new call arriving while the app is already in use) still
-    // auto-navigates immediately, same as before.
     val suppressNextAutoNav = remember { mutableStateOf(skipInitialCallAutoNav) }
 
-    LaunchedEffect(container) {
+    // Keyed on sessionState — see the doc comment above for why this
+    // is the fix for the "stuck, then goes back" crash.
+    LaunchedEffect(container, sessionState) {
+        if (sessionState == SessionState.Loading) return@LaunchedEffect
         container.callRepository.state.collect { callState ->
             val onCallRoute =
                 navController.currentBackStackEntry?.destination?.route == Routes.Call
@@ -135,7 +132,6 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     val callState by container.callRepository.state.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // Shown on every screen EXCEPT the Call screen itself.
         if (currentRoute != Routes.Call) {
             when (val s = callState) {
                 is CallUiState.Incoming -> InCallBanner(s.info, "Incoming") {
