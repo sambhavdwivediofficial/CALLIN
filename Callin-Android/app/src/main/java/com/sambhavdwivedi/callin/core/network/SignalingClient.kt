@@ -5,11 +5,11 @@ import com.sambhavdwivedi.callin.core.signaling.SignalingMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,18 +18,6 @@ import okhttp3.WebSocketListener
 import okio.ByteString
 import java.util.concurrent.TimeUnit
 
-/**
- * One persistent WebSocket connection to the backend's /ws endpoint,
- * carrying call signaling (invite/accept/reject/cancel/end) and
- * WebRTC negotiation (offer/answer/ICE). This is the single source
- * of truth for connection state — CallRepository consumes
- * [incoming] and calls [send]; nothing else touches the socket.
- *
- * Reconnects automatically with capped exponential backoff whenever
- * the connection drops (network change, backend restart, app
- * foregrounded again). A ping every 25s keeps NAT/firewall
- * connections alive between actual signaling traffic.
- */
 class SignalingClient(private val tokenStore: TokenStore) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
@@ -51,6 +39,7 @@ class SignalingClient(private val tokenStore: TokenStore) {
     fun start() {
         if (shouldRun) return
         shouldRun = true
+        _connectionState.tryEmit(false)
         scope.launch { connect() }
     }
 
@@ -114,5 +103,19 @@ class SignalingClient(private val tokenStore: TokenStore) {
     fun send(message: SignalingMessage): Boolean {
         val text = json.encodeToString(SignalingMessage.serializer(), message)
         return socket?.send(text) ?: false
+    }
+
+    /** Ensures the socket is actually open (starting it and waiting
+     * up to [timeoutMs] if needed — covers the exact race that was
+     * eating Accept/Decline taps right after a cold push: the socket
+     * hadn't finished connecting yet when the user tapped), then
+     * sends. This is what call actions (accept/reject/end/cancel)
+     * use instead of the fire-and-forget [send]. */
+    suspend fun sendReliable(message: SignalingMessage, timeoutMs: Long = 6000): Boolean {
+        if (!shouldRun) start()
+        withTimeoutOrNull(timeoutMs) {
+            connectionState.first { it }
+        }
+        return send(message)
     }
 }

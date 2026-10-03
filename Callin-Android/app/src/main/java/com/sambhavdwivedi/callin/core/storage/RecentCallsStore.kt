@@ -63,4 +63,9 @@ class RecentCallsStore(private val context: Context) {
     private suspend fun persist(list: List<RecentCallEntry>) {
         context.recentCallsDataStore.edit { it[key] = json.encodeToString(list) }
     }
+
+    suspend fun clearAll() {
+        context.recentCallsDataStore.edit { it.clear() }
+        _entries.value = emptyList()
+    }
 }
