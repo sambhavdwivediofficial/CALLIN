@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.sambhavdwivedi.callin.CallinApplication
 import com.sambhavdwivedi.callin.data.repository.CallUiState
@@ -37,6 +38,33 @@ import com.sambhavdwivedi.callin.ui.theme.CallinColors
 
 private enum class SessionState { Loading, LoggedOut, NeedsProfile, LoggedIn }
 
+/**
+ * Decides where the user lands right after the splash animation:
+ * Login if there's no session, CompleteProfile if their Google
+ * account hasn't finished onboarding, Home otherwise.
+ *
+ * [skipInitialCallAutoNav]: when the app is opened manually (not via
+ * a notification tap) while a call is already ringing in the
+ * background, the FIRST non-Idle call state is deliberately NOT
+ * auto-navigated to — the user lands on Home/whatever and sees the
+ * slim banner instead, and taps it themselves if they want the full
+ * Call screen. Every state change AFTER that first one (the call
+ * progressing, or a brand-new call arriving while the app is already
+ * open) still auto-navigates immediately — this is what makes
+ * "open app → tap a contact → call → straight to Call screen" work
+ * while still letting someone casually re-open the app without being
+ * yanked onto a screen they didn't ask for.
+ *
+ * currentRoute is read via [currentBackStackEntryAsState], the
+ * official Compose Navigation API — its state updates in the SAME
+ * recomposition pass as [androidx.navigation.NavController.navigate],
+ * so the banner-vs-Call-screen decision below never lags a frame
+ * behind the actual navigation. A manual
+ * `currentBackStackEntryFlow.collect()` (the old approach) updates
+ * one frame late, which is exactly what caused the banner to flash
+ * visibly for an instant before the Call screen took over right
+ * after starting a call from Contacts.
+ */
 @Composable
 fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     val context = LocalContext.current
@@ -59,12 +87,8 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
         }
     }
 
-    var currentRoute by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(navController) {
-        navController.currentBackStackEntryFlow.collect { entry ->
-            currentRoute = entry.destination.route
-        }
-    }
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
 
     // On a normal manual open while a call is already ringing in the
     // background, the FIRST non-Idle state is deliberately NOT
@@ -73,11 +97,12 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     // AFTER that first one (e.g. the call progressing, or a brand
     // new call arriving while the app is already in use) still
     // auto-navigates immediately, same as before.
-    var suppressNextAutoNav = remember { mutableStateOf(skipInitialCallAutoNav) }
+    val suppressNextAutoNav = remember { mutableStateOf(skipInitialCallAutoNav) }
 
     LaunchedEffect(container) {
         container.callRepository.state.collect { callState ->
-            val onCallRoute = currentRoute == Routes.Call
+            val onCallRoute =
+                navController.currentBackStackEntry?.destination?.route == Routes.Call
             when (callState) {
                 is CallUiState.Idle -> if (onCallRoute) navController.popBackStack()
                 is CallUiState.Outgoing, is CallUiState.Incoming, is CallUiState.Active, is CallUiState.Ended -> {
@@ -110,15 +135,16 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
     val callState by container.callRepository.state.collectAsState()
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // Shown on every screen EXCEPT the Call screen itself.
         if (currentRoute != Routes.Call) {
             when (val s = callState) {
-                is CallUiState.Incoming -> InCallBanner(s.info, "Incoming call — tap to answer") {
+                is CallUiState.Incoming -> InCallBanner(s.info, "Incoming") {
                     navController.navigate(Routes.Call)
                 }
-                is CallUiState.Outgoing -> InCallBanner(s.info, if (s.ringing) "Ringing..." else "Connecting...") {
+                is CallUiState.Outgoing -> InCallBanner(s.info, if (s.ringing) "Ringing" else "Connecting") {
                     navController.navigate(Routes.Call)
                 }
-                is CallUiState.Active -> InCallBanner(s.info, "Ongoing call — tap to return") {
+                is CallUiState.Active -> InCallBanner(s.info, "Tap to return") {
                     navController.navigate(Routes.Call)
                 }
                 else -> Unit
