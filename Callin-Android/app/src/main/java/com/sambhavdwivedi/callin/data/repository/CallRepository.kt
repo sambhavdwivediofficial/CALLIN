@@ -130,7 +130,13 @@ class CallRepository(
      * "incoming_call" push arrives while the signaling socket was dead
      * (app killed/backgrounded). No-ops if a call already occupies
      * this device by the time the push lands. */
-    fun onPushIncomingCall(callId: String, callerId: String) {
+    fun onPushIncomingCall(
+        callId: String,
+        callerId: String,
+        callerUsername: String? = null,
+        callerDisplayName: String? = null,
+        callerAvatarUrl: String? = null,
+    ) {
         if (_state.value !is CallUiState.Idle) return
         val peer = lookupPeer(callerId)
         attemptStartedAtMillis = System.currentTimeMillis()
@@ -139,9 +145,9 @@ class CallRepository(
                 CallPeerInfo(
                     callId = callId,
                     peerId = callerId,
-                    peerUsername = peer?.first ?: "Unknown",
-                    peerDisplayName = peer?.second,
-                    peerAvatarUrl = peer?.third,
+                    peerUsername = callerUsername ?: peer?.first ?: "Unknown",
+                    peerDisplayName = callerDisplayName ?: peer?.second,
+                    peerAvatarUrl = callerAvatarUrl ?: peer?.third,
                 )
             )
         )

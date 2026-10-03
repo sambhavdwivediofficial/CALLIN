@@ -1,5 +1,9 @@
 package com.sambhavdwivedi.callin.ui.home
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -49,12 +54,25 @@ fun RecentsScreen(container: AppContainer) {
     val entries by container.recentCallsStore.entries.collectAsState()
     var isRefreshing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val rotation = remember { Animatable(0f) }
 
     // Already preloaded during the splash (see MainActivity.AppRoot),
     // so entries is non-null almost immediately — this just makes
     // sure it's current if this is the very first collection.
     LaunchedEffect(Unit) {
         if (entries == null) container.recentCallsStore.getAll()
+    }
+
+    LaunchedEffect(isRefreshing) {
+        if (isRefreshing) {
+            rotation.snapTo(0f)
+            rotation.animateTo(
+                360f,
+                animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing))
+            )
+        } else {
+            rotation.snapTo(0f)
+        }
     }
 
     val allEntries = entries.orEmpty()
@@ -75,6 +93,7 @@ fun RecentsScreen(container: AppContainer) {
                 tint = CallinColors.TextSecondary,
                 modifier = Modifier
                     .size(22.dp)
+                    .graphicsLayer { rotationZ = rotation.value }
                     .clickable(enabled = !isRefreshing) {
                         isRefreshing = true
                         scope.launch {

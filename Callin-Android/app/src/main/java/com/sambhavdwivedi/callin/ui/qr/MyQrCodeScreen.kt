@@ -39,6 +39,7 @@ import com.google.zxing.qrcode.QRCodeWriter
 import com.sambhavdwivedi.callin.core.di.AppContainer
 import com.sambhavdwivedi.callin.ui.components.PulseBarsLoader
 import com.sambhavdwivedi.callin.ui.theme.CallinColors
+import androidx.compose.runtime.collectAsState
 
 /** Every CALLIN QR code encodes this scheme so the scanner can tell
  * a genuine CALLIN contact code apart from any other QR code. */
@@ -72,23 +73,22 @@ private fun buildQrBitmap(content: String, sizePx: Int): Bitmap {
  */
 @Composable
 fun MyQrCodeScreen(container: AppContainer, onBack: () -> Unit) {
-    var username by remember { mutableStateOf<String?>(null) }
-    var displayName by remember { mutableStateOf<String?>(null) }
-    var isLoading by remember { mutableStateOf(true) }
+    val cached = container.userRepository.me.collectAsState().value
+    var username by remember { mutableStateOf(cached?.username) }
+    var displayName by remember { mutableStateOf(cached?.display_name) }
+    var isLoading by remember { mutableStateOf(cached == null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-
+    
     LaunchedEffect(Unit) {
-        container.userRepository.getMe()
-            .onSuccess { me ->
-                username = me.username
-                displayName = me.display_name
-                if (me.username.isNullOrBlank()) {
-                    errorMessage = "Your profile doesn't have a username yet."
+        if (cached == null) {
+            container.userRepository.getMe()
+                .onSuccess { me ->
+                    username = me.username
+                    displayName = me.display_name
+                    if (me.username.isNullOrBlank()) errorMessage = "Your profile doesn't have a username yet."
                 }
-            }
-            .onFailure {
-                errorMessage = it.message ?: "Could not load your QR code."
-            }
+                .onFailure { errorMessage = it.message ?: "Could not load your QR code." }
+        }
         isLoading = false
     }
 

@@ -244,8 +244,7 @@ fun ProfileScreen(
             onClick = {
                 isSigningOut = true
                 scope.launch {
-                    container.signalingClient.stop()
-                    container.authRepository.logout()
+                    container.fullLogout()
                     isSigningOut = false
                     onSignOut()
                 }
