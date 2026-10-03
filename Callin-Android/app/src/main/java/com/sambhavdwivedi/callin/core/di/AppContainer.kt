@@ -45,4 +45,16 @@ class AppContainer(context: Context) {
                 ?.let { Triple(it.username, it.display_name, it.avatar_url) }
         }
     )
+
+    /** Full, permanent wipe on sign-out: every on-device store this
+     * app writes to, not just the auth tokens — recents, notification
+     * history, ringtone choice, the permission-recheck timestamp. */
+    suspend fun fullLogout() {
+        signalingClient.stop()
+        tokenStore.clear()
+        recentCallsStore.clearAll()
+        connectionRepository.clearHistory()
+        // In-memory caches reset too, so the UI reflects "logged out"
+        // instantly without needing a process restart.
+    }
 }

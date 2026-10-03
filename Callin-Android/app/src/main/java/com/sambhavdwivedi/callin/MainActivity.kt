@@ -54,11 +54,32 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-
+    
+        val container = (applicationContext as CallinApplication).container
         val openCall = intent?.getBooleanExtra(
             com.sambhavdwivedi.callin.core.call.CallNotifier.EXTRA_OPEN_CALL, false
         ) ?: false
-
+    
+        // Set synchronously, BEFORE first frame — not inside a
+        // LaunchedEffect that waits for Compose to run a pass. This is
+        // what was making "wake over lock screen" flaky: by the time the
+        // old LaunchedEffect fired, the window was sometimes already
+        // drawn behind the lock screen.
+        val callIsActive = container.callRepository.state.value !is com.sambhavdwivedi.callin.data.repository.CallUiState.Idle
+        if (openCall || callIsActive) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O_MR1) {
+                setShowWhenLocked(true)
+                setTurnScreenOn(true)
+            } else {
+                @Suppress("DEPRECATION")
+                window.addFlags(
+                    android.view.WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        android.view.WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
+                        android.view.WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
+                )
+            }
+        }
+    
         setContent {
             CallinTheme {
                 AppRoot(skipSplash = openCall)
