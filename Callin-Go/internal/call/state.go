@@ -8,9 +8,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// validTransitions defines every allowed status change. Any
-// transition not listed here is rejected — this is what stops the
-// system from, for example, "accepting" a call that has already ended.
 var validTransitions = map[Status][]Status{
 	StatusRinging:    {StatusConnecting, StatusDeclined, StatusCancelled, StatusMissed},
 	StatusConnecting: {StatusConnected, StatusEnded, StatusCancelled},
@@ -21,8 +18,6 @@ var validTransitions = map[Status][]Status{
 	StatusCancelled:  {},
 }
 
-// CanTransition reports whether moving from `from` to `to` is a
-// legal call-state transition.
 func CanTransition(from, to Status) bool {
 	for _, allowed := range validTransitions[from] {
 		if allowed == to {
@@ -32,9 +27,6 @@ func CanTransition(from, to Status) bool {
 	return false
 }
 
-// ActiveCall is the live, in-memory record of a call that is
-// currently ringing or connected. Terminal calls are written to
-// PostgreSQL and dropped from memory.
 type ActiveCall struct {
 	ID        string
 	CallerID  string
@@ -43,15 +35,10 @@ type ActiveCall struct {
 	StartedAt time.Time
 }
 
-// Registry tracks every currently active call in memory. A single
-// backend instance is assumed (see middleware.IPRateLimiter for the
-// same tradeoff) — this keeps the system simple while call volume
-// is low, and is the natural place to introduce Redis later if
-// CALLIN ever needs multiple backend replicas.
 type Registry struct {
 	mu     sync.RWMutex
 	calls  map[string]*ActiveCall
-	byUser map[string]string // userID -> callID, so we can reject "already on a call"
+	byUser map[string]string
 }
 
 func NewRegistry() *Registry {
@@ -67,8 +54,6 @@ var (
 	ErrInvalidTransition = errors.New("call: invalid state transition")
 )
 
-// Start creates a new ringing call between caller and callee. It
-// fails if either party is already on a call.
 func (r *Registry) Start(callerID, calleeID string) (*ActiveCall, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -95,9 +80,6 @@ func (r *Registry) Start(callerID, calleeID string) (*ActiveCall, error) {
 	return c, nil
 }
 
-// Transition moves a call to a new status, validating that the
-// transition is legal. Reaching a terminal status removes the call
-// from the active registry.
 func (r *Registry) Transition(callID string, to Status) (*ActiveCall, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -129,7 +111,6 @@ func (r *Registry) Get(callID string) (*ActiveCall, bool) {
 	return c, ok
 }
 
-// ActiveCallForUser returns the call a user is currently part of, if any.
 func (r *Registry) ActiveCallForUser(userID string) (*ActiveCall, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -139,6 +120,36 @@ func (r *Registry) ActiveCallForUser(userID string) (*ActiveCall, bool) {
 	}
 	c := r.calls[callID]
 	return c, c != nil
+}
+
+// EndAllForUser force-ends and removes from the registry any call
+// userID is currently part of (ringing, connecting, or active), and
+// returns it so the caller can notify the other party and persist
+// history. Without this, a user whose socket drops mid-call (app
+// killed, crash, lost network) stays marked "busy" in this
+// in-memory map forever — every future call attempt involving
+// either party then fails with ErrUserBusy until the server process
+// restarts. This is called the moment a user's last open connection
+// closes.
+func (r *Registry) EndAllForUser(userID string) []*ActiveCall {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	callID, ok := r.byUser[userID]
+	if !ok {
+		return nil
+	}
+	c, ok := r.calls[callID]
+	if !ok {
+		delete(r.byUser, userID)
+		return nil
+	}
+
+	delete(r.calls, c.ID)
+	delete(r.byUser, c.CallerID)
+	delete(r.byUser, c.CalleeID)
+
+	return []*ActiveCall{c}
 }
 
 func isTerminal(s Status) bool {

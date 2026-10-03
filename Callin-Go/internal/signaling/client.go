@@ -50,6 +50,13 @@ func (c *Client) Run() {
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.Unregister(c)
+		// Only force-end an active call once this was this user's
+		// LAST open connection — a user signed in on two devices
+		// shouldn't have their call killed just because one device
+		// closed while the other stays connected.
+		if !c.hub.IsOnline(c.UserID) {
+			c.router.HandleDisconnect(c.UserID)
+		}
 		c.conn.Close()
 	}()
 

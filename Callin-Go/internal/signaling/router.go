@@ -159,3 +159,38 @@ func (r *Router) handlePing(c *Client) {
 	default:
 	}
 }
+
+// HandleDisconnect is called once a user has zero remaining open
+// WebSocket connections (every device they were signed in on has
+// disconnected). If they were ringing, connecting, or active on a
+// call, that call is force-ended: the other party gets a call.end
+// so their UI doesn't hang waiting forever, and the call is
+// persisted to history. This is the fix for calls getting
+// permanently stuck "busy" after an app kill or crash.
+func (r *Router) HandleDisconnect(userID string) {
+	ended := r.calls.EndAllForUser(userID)
+	for _, activeCall := range ended {
+		other := activeCall.CalleeID
+		if userID == activeCall.CalleeID {
+			other = activeCall.CallerID
+		}
+
+		out := Message{
+			Type:      TypeCallEnd,
+			CallID:    activeCall.ID,
+			From:      userID,
+			To:        other,
+			Timestamp: time.Now().UnixMilli(),
+		}
+		r.hub.SendToUser(other, out)
+
+		endReason := "disconnected"
+		go func(ac *call.ActiveCall, reason string) {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := call.Persist(ctx, r.pool, ac, call.StatusEnded, &reason); err != nil {
+				r.logger.Error("persisting disconnected call", "call_id", ac.ID, "error", err)
+			}
+		}(activeCall, endReason)
+	}
+}
