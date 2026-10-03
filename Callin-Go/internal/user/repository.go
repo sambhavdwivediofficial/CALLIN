@@ -16,12 +16,8 @@ var (
 	ErrProfileAlreadySet = errors.New("user: profile already completed")
 )
 
-// selectColumns is the full column list, in scan order, used by
-// every query that returns a complete User row.
 const selectColumns = `id, username, email, password_hash, display_name, first_name, last_name, avatar_url, google_id, profile_completed, created_at, updated_at`
 
-// Repository is the PostgreSQL-backed persistence layer for users
-// and their registered devices.
 type Repository struct {
 	pool *pgxpool.Pool
 }
@@ -30,9 +26,6 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{pool: pool}
 }
 
-// Create registers a classic username+password account. Not used by
-// the app's UI (Google Sign-In only) but kept available for testing
-// and any future non-Google auth path.
 func (r *Repository) Create(ctx context.Context, u *User) error {
 	const q = `
 		INSERT INTO users (username, email, password_hash, display_name, profile_completed)
@@ -74,11 +67,6 @@ func (r *Repository) scanOne(ctx context.Context, q string, args ...any) (*User,
 	return &u, nil
 }
 
-// FindOrCreateByGoogle looks up a user by their Google account. If
-// no account is linked to this Google ID yet but one already exists
-// with the same email (e.g. from classic register), it links the
-// Google ID to that account instead of creating a duplicate. If
-// truly new, it creates a bare account with profile_completed=false.
 func (r *Repository) FindOrCreateByGoogle(ctx context.Context, googleID, email string) (*User, error) {
 	if existing, err := r.getByGoogleID(ctx, googleID); err == nil {
 		return existing, nil
@@ -113,10 +101,6 @@ func (r *Repository) FindOrCreateByGoogle(ctx context.Context, googleID, email s
 	return &created, nil
 }
 
-// CompleteProfile sets a first-time user's username, first name and
-// last name, and marks the profile complete. It refuses to run a
-// second time — once set, username and name are locked at this
-// layer, not just in the UI.
 func (r *Repository) CompleteProfile(ctx context.Context, userID, username, firstName, lastName string) (*User, error) {
 	existing, err := r.GetByID(ctx, userID)
 	if err != nil {
@@ -149,7 +133,6 @@ func (r *Repository) CompleteProfile(ctx context.Context, userID, username, firs
 	return &updated, nil
 }
 
-// UsernameExists reports whether a username is already taken.
 func (r *Repository) UsernameExists(ctx context.Context, username string) (bool, error) {
 	var exists bool
 	err := r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)`, username).Scan(&exists)
@@ -159,7 +142,6 @@ func (r *Repository) UsernameExists(ctx context.Context, username string) (bool,
 	return exists, nil
 }
 
-// UpdateAvatarURL saves the URL of a user's uploaded profile photo.
 func (r *Repository) UpdateAvatarURL(ctx context.Context, userID, url string) error {
 	_, err := r.pool.Exec(ctx, `UPDATE users SET avatar_url = $1, updated_at = now() WHERE id = $2`, url, userID)
 	if err != nil {
@@ -168,8 +150,6 @@ func (r *Repository) UpdateAvatarURL(ctx context.Context, userID, url string) er
 	return nil
 }
 
-// List returns every other user who has finished onboarding, for
-// the contacts/search screen.
 func (r *Repository) List(ctx context.Context, excludeUserID string, limit int) ([]Public, error) {
 	const q = `
 		SELECT id, username, display_name, avatar_url
@@ -195,7 +175,6 @@ func (r *Repository) List(ctx context.Context, excludeUserID string, limit int) 
 	return out, rows.Err()
 }
 
-// UpsertDevice registers or refreshes an FCM token for a user's device.
 func (r *Repository) UpsertDevice(ctx context.Context, userID, fcmToken, platform string) error {
 	const q = `
 		INSERT INTO devices (user_id, fcm_token, platform, last_seen_at)
@@ -210,8 +189,6 @@ func (r *Repository) UpsertDevice(ctx context.Context, userID, fcmToken, platfor
 	return nil
 }
 
-// DeviceTokens returns every active FCM token for a user, used to
-// push an incoming-call notification to all of their devices.
 func (r *Repository) DeviceTokens(ctx context.Context, userID string) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `SELECT fcm_token FROM devices WHERE user_id = $1`, userID)
 	if err != nil {
@@ -228,6 +205,18 @@ func (r *Repository) DeviceTokens(ctx context.Context, userID string) ([]string,
 		tokens = append(tokens, t)
 	}
 	return tokens, rows.Err()
+}
+
+// DeleteDeviceToken removes one specific FCM token for a user —
+// called when Firebase reports it as permanently dead
+// (NotRegistered/UNREGISTERED), so a stale token from an old install
+// doesn't keep silently absorbing every future push attempt.
+func (r *Repository) DeleteDeviceToken(ctx context.Context, userID, fcmToken string) error {
+	_, err := r.pool.Exec(ctx, `DELETE FROM devices WHERE user_id = $1 AND fcm_token = $2`, userID, fcmToken)
+	if err != nil {
+		return fmt.Errorf("user repository: delete device token: %w", err)
+	}
+	return nil
 }
 
 func isUniqueViolation(err error) bool {

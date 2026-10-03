@@ -6,24 +6,29 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"callin-go/internal/call"
 	"callin-go/internal/push"
 	"callin-go/internal/user"
 )
 
+// Router validates every incoming signaling message and routes it:
+// forwarding to the other party if reachable, updating in-memory
+// call state, and falling back to push when the target isn't
+// reachable. Nothing about a call — who called whom, when, how long
+// — is written to persistent storage anywhere in this package;
+// Registry is purely in-memory and exists only to prevent
+// double-booking a user onto two calls and to drive ring-timeout /
+// disconnect cleanup.
 type Router struct {
 	hub    *Hub
 	calls  *call.Registry
-	pool   *pgxpool.Pool
 	pusher *push.FCMClient
 	users  *user.Repository
 	logger *slog.Logger
 }
 
-func NewRouter(hub *Hub, calls *call.Registry, pool *pgxpool.Pool, pusher *push.FCMClient, users *user.Repository, logger *slog.Logger) *Router {
-	return &Router{hub: hub, calls: calls, pool: pool, pusher: pusher, users: users, logger: logger}
+func NewRouter(hub *Hub, calls *call.Registry, pusher *push.FCMClient, users *user.Repository, logger *slog.Logger) *Router {
+	return &Router{hub: hub, calls: calls, pusher: pusher, users: users, logger: logger}
 }
 
 func (r *Router) Handle(c *Client, msg Message) {
@@ -70,9 +75,6 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 	}
 
 	if delivered := r.hub.SendToUser(payload.CalleeID, out); !delivered {
-		// Offline — wake them with a push carrying the caller's real
-		// identity, looked up here server-side (always available,
-		// never dependent on the callee's local cache being warm).
 		callerInfo := push.CallerInfo{}
 		if u, err := r.users.GetByID(context.Background(), c.UserID); err == nil {
 			if u.Username != nil {
@@ -114,15 +116,10 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
+	// Terminal states only ever update in-memory Registry state —
+	// nothing is written to any database. Call history lives
+	// entirely on-device now.
 	r.relay(c, activeCall, msg)
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := call.Persist(ctx, r.pool, activeCall, to, nil); err != nil {
-			r.logger.Error("persisting call history", "call_id", activeCall.ID, "error", err)
-		}
-	}()
 }
 
 func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
@@ -161,12 +158,9 @@ func (r *Router) handlePing(c *Client) {
 }
 
 // HandleDisconnect is called once a user has zero remaining open
-// WebSocket connections (every device they were signed in on has
-// disconnected). If they were ringing, connecting, or active on a
-// call, that call is force-ended: the other party gets a call.end
-// so their UI doesn't hang waiting forever, and the call is
-// persisted to history. This is the fix for calls getting
-// permanently stuck "busy" after an app kill or crash.
+// WebSocket connections. If they were ringing, connecting, or
+// active on a call, that call is force-ended in memory and the other
+// party is told — nothing is written to any database here.
 func (r *Router) HandleDisconnect(userID string) {
 	ended := r.calls.EndAllForUser(userID)
 	for _, activeCall := range ended {
@@ -183,14 +177,5 @@ func (r *Router) HandleDisconnect(userID string) {
 			Timestamp: time.Now().UnixMilli(),
 		}
 		r.hub.SendToUser(other, out)
-
-		endReason := "disconnected"
-		go func(ac *call.ActiveCall, reason string) {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := call.Persist(ctx, r.pool, ac, call.StatusEnded, &reason); err != nil {
-				r.logger.Error("persisting disconnected call", "call_id", ac.ID, "error", err)
-			}
-		}(activeCall, endReason)
 	}
 }
