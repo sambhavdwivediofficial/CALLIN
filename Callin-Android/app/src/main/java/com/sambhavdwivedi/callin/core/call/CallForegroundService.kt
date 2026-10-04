@@ -9,39 +9,43 @@ import androidx.core.app.NotificationCompat
  * Keeps the app's process alive — and the WebSocket/WebRTC session
  * with it — for as long as a call is ringing or active, regardless
  * of whether the screen is locked, another app is on top, or the
- * user swipes CALLIN away from Recents.
+ * task is swiped from Recents (stopWithTask="false" in the manifest).
  *
- * This MUST be declared in AndroidManifest.xml with
- * android:stopWithTask="false" — without that manifest entry,
- * Android can't find the component and startForegroundService()
- * throws, which was silently killing call reliability project-wide:
- * every attempt to start this service crashed right after the
- * ringtone/notification fired, explaining the ringtone cutting out
- * and the notification buttons appearing to do nothing.
+ * foregroundServiceType is "microphone", NOT "phoneCall" — the
+ * latter requires Telecom integration (default dialer / self-managed
+ * ConnectionService) that this app doesn't have, and attempting it
+ * threw immediately on start, crashing the entire process right
+ * after the incoming-call notification/ringtone fired. "microphone"
+ * has no such requirement, matching what this service actually does
+ * (keep an audio call alive).
  *
- * [onTaskRemoved] is overridden with an explicit empty body as a
- * guard against ever adding a stopSelf() here by accident — with
- * stopWithTask="false" properly declared, Android already keeps this
- * running when the task is swiped from Recents; this is just
- * documentation-as-code for that intent.
+ * onStartCommand itself is wrapped defensively: even a successful
+ * manifest declaration can still fail to start on some OEM skins
+ * under aggressive battery restrictions — in that case we log rather
+ * than let the exception propagate and kill the process, since a
+ * degraded call (foreground service failed, but WebRTC/signaling
+ * still running) is strictly better than no call at all.
  */
 class CallForegroundService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val notification = NotificationCompat.Builder(this, CallNotifier.CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.sym_call_outgoing)
-            .setContentTitle("CALLIN")
-            .setContentText("Call in progress")
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
-            .setCategory(NotificationCompat.CATEGORY_CALL)
-            .build()
-        startForeground(CallNotifier.NOTIFICATION_ID, notification)
+        try {
+            val notification = NotificationCompat.Builder(this, CallNotifier.CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.sym_call_outgoing)
+                .setContentTitle("CALLIN")
+                .setContentText("Call in progress")
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .build()
+            startForeground(CallNotifier.NOTIFICATION_ID, notification)
+        } catch (t: Throwable) {
+            android.util.Log.e("CallForegroundService", "startForeground failed", t)
+        }
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Deliberately empty — see class doc comment.
         super.onTaskRemoved(rootIntent)
     }
 }

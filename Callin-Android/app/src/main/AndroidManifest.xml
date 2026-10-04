@@ -13,7 +13,7 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 
     <uses-feature
         android:name="android.hardware.camera"
@@ -24,7 +24,7 @@
 
     <application
         android:name=".CallinApplication"
-        android:usesCleartextTraffic="true"
+        android:usesCleartextTraffic="false"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -45,17 +45,21 @@
 
         <receiver android:name=".core.call.CallActionReceiver" android:exported="false" />
 
-        <!-- CRITICAL FIX: this service was missing entirely before —
-             every call to startForegroundService(CallForegroundService)
-             was silently failing, crashing CallRepository.setState()
-             right after the ringtone/notification fired. This single
-             missing declaration explains most of the unreliable-call
-             symptoms. stopWithTask="false" is what makes a call survive
-             the user swiping CALLIN out of Recents. -->
+        <!-- CRITICAL FIX: "phoneCall" was the actual crash cause.
+             Android restricts foregroundServiceType="phoneCall" to
+             apps integrated with the Telecom framework (default
+             dialer / self-managed ConnectionService) — CALLIN uses
+             neither, so every startForeground() call with that type
+             threw and crashed the whole process immediately after
+             the ringtone/notification fired, which is exactly what
+             "Callin keeps stopping" was. "microphone" is the correct
+             type for a custom VoIP app: it only requires
+             RECORD_AUDIO (already held) and carries no Telecom
+             requirement. -->
         <service
             android:name=".core.call.CallForegroundService"
             android:exported="false"
-            android:foregroundServiceType="phoneCall"
+            android:foregroundServiceType="microphone"
             android:stopWithTask="false" />
 
         <service

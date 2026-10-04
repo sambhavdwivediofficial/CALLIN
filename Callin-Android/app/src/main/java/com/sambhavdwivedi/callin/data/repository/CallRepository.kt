@@ -59,35 +59,6 @@ sealed interface CallUiState {
 
 private const val RING_TIMEOUT_MS = 60_000L
 
-/**
- * Owns the whole call lifecycle.
- *
- * Audio routing is STATE-dependent: Incoming rings loud on the
- * speaker regardless of any earlier earpiece/speaker choice;
- * Outgoing/Active follow [_isSpeakerOn], which starts false
- * (earpiece) every time and only changes when the user taps the
- * speaker icon.
- *
- * [CallForegroundService] runs for the whole lifetime of any
- * non-Idle state — this is what keeps the process (socket + WebRTC
- * audio) alive while the screen is off, another app is on top, or
- * the task is swiped from Recents (see the service's manifest entry,
- * stopWithTask="false").
- *
- * LATENCY FIX — "early offer": for the caller, WebRTC setup (peer
- * connection + local audio track + SDP offer + ICE gathering) now
- * starts the INSTANT the call is placed (in [startCall]), not after
- * the callee accepts. Ringing normally lasts several seconds while
- * the other person notices their phone — that was previously wasted
- * time; now the slow part (offer + ICE gathering, often 2-5 seconds
- * with a TURN relay) overlaps with it, so by the time the callee
- * taps Accept, the offer is usually already sitting ready to send.
- * Any ICE candidates discovered during this early window are
- * BUFFERED (not sent) until the callee's peer connection actually
- * exists (which only happens once they accept) — sending earlier
- * would just have them silently dropped on the callee's end. The
- * buffer flushes the instant the offer is sent.
- */
 class CallRepository(
     context: Context,
     private val signalingClient: SignalingClient,
@@ -116,7 +87,6 @@ class CallRepository(
     private var started = false
     private var attemptStartedAtMillis = 0L
 
-    // Early-offer latency optimization (caller side) — see class doc.
     private var preparedOfferSdp: SessionDescription? = null
     private var readyToSendCandidates = false
     private val pendingLocalCandidates = mutableListOf<IceCandidate>()
@@ -133,7 +103,16 @@ class CallRepository(
         if (started) return
         started = true
         scope.launch {
-            signalingClient.incoming.collect { msg -> handleMessage(msg) }
+            signalingClient.incoming.collect { msg ->
+                // One bad message must never kill the collector (and
+                // with it, every future signaling message for the
+                // rest of this process's life) — isolate each one.
+                try {
+                    handleMessage(msg)
+                } catch (t: Throwable) {
+                    android.util.Log.e("CallRepository", "handling ${msg.type} failed", t)
+                }
+            }
         }
     }
 
@@ -163,29 +142,30 @@ class CallRepository(
 
     private fun setState(newState: CallUiState) {
         _state.value = newState
-        notifier.update(newState)
-        updateAudioRoute(newState)
-        updateSounds(newState)
-        updateProximityLock(newState)
-        manageRingTimeout(newState)
-        updateForegroundService(newState)
+        // Each side effect isolated — a failure in one (e.g. the
+        // ringtone's audio focus request) must never prevent the
+        // others (e.g. the notification, or the foreground service)
+        // from running.
+        runCatching { notifier.update(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "notifier.update failed", it) }
+        runCatching { updateAudioRoute(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "updateAudioRoute failed", it) }
+        runCatching { updateSounds(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "updateSounds failed", it) }
+        runCatching { updateProximityLock(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "updateProximityLock failed", it) }
+        runCatching { manageRingTimeout(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "manageRingTimeout failed", it) }
+        runCatching { updateForegroundService(newState) }
+            .onFailure { android.util.Log.e("CallRepository", "updateForegroundService failed", it) }
     }
 
     private fun updateForegroundService(state: CallUiState) {
-        // Defensive try/catch: even with the manifest fix in place,
-        // some OEM skins impose extra background-start restrictions.
-        // We never want a failure here to crash the whole call
-        // pipeline — which is exactly what used to happen before this
-        // was wrapped (see the manifest fix explanation).
-        try {
-            val intent = Intent(appContext, CallForegroundService::class.java)
-            if (state !is CallUiState.Idle) {
-                ContextCompat.startForegroundService(appContext, intent)
-            } else {
-                appContext.stopService(intent)
-            }
-        } catch (t: Throwable) {
-            android.util.Log.e("CallRepository", "foreground service start/stop failed", t)
+        val intent = Intent(appContext, CallForegroundService::class.java)
+        if (state !is CallUiState.Idle) {
+            ContextCompat.startForegroundService(appContext, intent)
+        } else {
+            appContext.stopService(intent)
         }
     }
 
@@ -253,9 +233,11 @@ class CallRepository(
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 
-        ringbackFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(attributes)
-            .build().also { audioManager.requestAudioFocus(it) }
+        runCatching {
+            ringbackFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attributes)
+                .build().also { audioManager.requestAudioFocus(it) }
+        }
 
         ringbackPlayer = runCatching {
             MediaPlayer().apply {
@@ -273,7 +255,7 @@ class CallRepository(
     private fun stopRingback() {
         ringbackPlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
         ringbackPlayer = null
-        ringbackFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        ringbackFocusRequest?.let { runCatching { audioManager.abandonAudioFocusRequest(it) } }
         ringbackFocusRequest = null
     }
 
@@ -285,45 +267,47 @@ class CallRepository(
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
 
-        // Requesting audio focus for the ringtone stream is what makes
-        // ringing reliable regardless of what else currently holds
-        // focus — without this, the MediaPlayer can "succeed" from
-        // our point of view yet produce no audible sound on some
-        // devices. This is the fix for "sometimes it rings, sometimes
-        // it doesn't".
-        ringtoneFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
-            .setAudioAttributes(attributes)
-            .build().also { audioManager.requestAudioFocus(it) }
-
-        scope.launch {
-            val fileName = ringtoneStore.getSelected()
-                ?: RingtoneAssets.list(appContext).firstOrNull()?.fileName
-
-            ringtonePlayer = runCatching {
-                MediaPlayer().apply {
-                    if (fileName != null) {
-                        val afd = appContext.assets.openFd(RingtoneAssets.assetPath(fileName))
-                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        afd.close()
-                    }
-                    setAudioAttributes(attributes)
-                    isLooping = true
-                    prepare()
-                    start()
-                }
-            }.getOrNull()
+        runCatching {
+            ringtoneFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(attributes)
+                .build().also { audioManager.requestAudioFocus(it) }
         }
 
-        vibrator = appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 600), 0))
+        scope.launch {
+            try {
+                val fileName = ringtoneStore.getSelected()
+                    ?: RingtoneAssets.list(appContext).firstOrNull()?.fileName
+
+                ringtonePlayer = runCatching {
+                    MediaPlayer().apply {
+                        if (fileName != null) {
+                            val afd = appContext.assets.openFd(RingtoneAssets.assetPath(fileName))
+                            setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                            afd.close()
+                        }
+                        setAudioAttributes(attributes)
+                        isLooping = true
+                        prepare()
+                        start()
+                    }
+                }.getOrNull()
+            } catch (t: Throwable) {
+                android.util.Log.e("CallRepository", "starting ringtone failed", t)
+            }
+        }
+
+        runCatching {
+            vibrator = appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 600), 0))
+        }
     }
 
     private fun stopIncomingAlert() {
         ringtonePlayer?.let { runCatching { it.stop() }; runCatching { it.release() } }
         ringtonePlayer = null
-        ringtoneFocusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
+        ringtoneFocusRequest?.let { runCatching { audioManager.abandonAudioFocusRequest(it) } }
         ringtoneFocusRequest = null
-        vibrator?.cancel()
+        runCatching { vibrator?.cancel() }
         vibrator = null
     }
 
@@ -406,12 +390,8 @@ class CallRepository(
             val client = ensureWebRtc()
             val offer = preparedOfferSdp
             if (offer != null) {
-                // Already created while ringing — send instantly
-                // instead of creating a fresh one now.
                 sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, offer)
             } else {
-                // Fallback for the rare case accept arrived before the
-                // offer finished preparing — behaves exactly as before.
                 client.start(IceServers.defaults())
                 client.createOffer { sdp -> sendSdp(SignalingType.WEBRTC_OFFER, info.peerId, sdp) }
             }
@@ -466,7 +446,6 @@ class CallRepository(
         val payload = json.encodeToJsonElement(CallInvitePayload.serializer(), CallInvitePayload(peerId))
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_INVITE, to = peerId, payload = payload))
 
-        // Latency optimization — see class doc comment.
         val client = ensureWebRtc()
         client.start(IceServers.defaults())
         client.createOffer { sdp -> preparedOfferSdp = sdp }
@@ -483,7 +462,7 @@ class CallRepository(
     fun acceptCall() {
         val info = (_state.value as? CallUiState.Incoming)?.info ?: return
         isCaller = false
-        readyToSendCandidates = true // no early phase on the callee side, send immediately
+        readyToSendCandidates = true
         ensureWebRtc().start(IceServers.defaults())
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_ACCEPT, callId = info.callId, to = info.peerId))
     }
