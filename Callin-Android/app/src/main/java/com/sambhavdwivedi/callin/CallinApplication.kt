@@ -14,16 +14,6 @@ class CallinApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
-
-        // CRITICAL FIX: CallRepository MUST be collecting signaling
-        // messages from the moment the process exists — not only
-        // once some UI composable happens to run. Without this, a
-        // cold process created purely to handle an FCM push or a
-        // notification-button BroadcastReceiver has nobody listening
-        // for the call.accept echo, webrtc offer/answer, etc., so
-        // Accept/Decline from the notification silently did nothing
-        // and the call never left "ringing" even though the message
-        // was sent.
         container.callRepository.start()
 
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
@@ -31,6 +21,24 @@ class CallinApplication : Application() {
                 container.tokenStore.getProfileCompleted()
             ) {
                 container.signalingClient.start()
+            }
+        }
+
+        // Warms up WebRTC's native library load on a background
+        // thread the instant the process starts, instead of the
+        // first time it's actually needed (inside startCall/
+        // acceptCall). This native load is the single biggest
+        // contributor to the 3-5s delay on a cold-started call —
+        // doing it here means it's almost always already finished by
+        // the time a real call happens.
+        CoroutineScope(Dispatchers.Default).launch {
+            runCatching {
+                org.webrtc.PeerConnectionFactory.initialize(
+                    org.webrtc.PeerConnectionFactory.InitializationOptions
+                        .builder(this@CallinApplication)
+                        .setEnableInternalTracer(false)
+                        .createInitializationOptions()
+                )
             }
         }
     }

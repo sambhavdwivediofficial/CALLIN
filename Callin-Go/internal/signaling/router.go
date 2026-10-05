@@ -3,6 +3,7 @@ package signaling
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -11,14 +12,6 @@ import (
 	"callin-go/internal/user"
 )
 
-// Router validates every incoming signaling message and routes it:
-// forwarding to the other party if reachable, updating in-memory
-// call state, and falling back to push when the target isn't
-// reachable. Nothing about a call — who called whom, when, how long
-// — is written to persistent storage anywhere in this package;
-// Registry is purely in-memory and exists only to prevent
-// double-booking a user onto two calls and to drive ring-timeout /
-// disconnect cleanup.
 type Router struct {
 	hub    *Hub
 	calls  *call.Registry
@@ -74,7 +67,9 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	if delivered := r.hub.SendToUser(payload.CalleeID, out); !delivered {
+	// Only the invite needs the alive check — it's what decides
+	// whether the push wake-up fallback fires.
+	if delivered := r.hub.SendToUser(payload.CalleeID, out, true); !delivered {
 		callerInfo := push.CallerInfo{}
 		if u, err := r.users.GetByID(context.Background(), c.UserID); err == nil {
 			if u.Username != nil {
@@ -90,7 +85,7 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 		r.pusher.NotifyIncomingCall(context.Background(), payload.CalleeID, activeCall.ID, callerInfo)
 	}
 
-	r.hub.SendToUser(c.UserID, out)
+	r.hub.SendToUser(c.UserID, out, false)
 }
 
 func (r *Router) handleTransition(c *Client, msg Message, to call.Status) {
@@ -113,12 +108,23 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 	}
 	activeCall, err := r.calls.Transition(msg.CallID, to)
 	if err != nil {
+		if errors.Is(err, call.ErrCallNotFound) {
+			// The other party's own end/decline/cancel (or a
+			// disconnect) already removed this call from the
+			// registry moments earlier — there's nothing left to
+			// relay, and this is not an error: the call is, in fact,
+			// already over. Previously this fell into the same
+			// sendError path as a genuinely invalid transition,
+			// which replaced any relay attempt instead of
+			// recognizing "already ended" as a valid, harmless
+			// outcome — that's part of what could leave one side
+			// believing a call had ended while the other was never
+			// actually told.
+			return
+		}
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
-	// Terminal states only ever update in-memory Registry state —
-	// nothing is written to any database. Call history lives
-	// entirely on-device now.
 	r.relay(c, activeCall, msg)
 }
 
@@ -135,8 +141,8 @@ func (r *Router) relay(c *Client, activeCall *call.ActiveCall, msg Message) {
 		Payload:   msg.Payload,
 		Timestamp: time.Now().UnixMilli(),
 	}
-	r.hub.SendToUser(other, out)
-	r.hub.SendToUser(c.UserID, out)
+	r.hub.SendToUser(other, out, false)
+	r.hub.SendToUser(c.UserID, out, false)
 }
 
 func (r *Router) forward(c *Client, msg Message) {
@@ -146,7 +152,7 @@ func (r *Router) forward(c *Client, msg Message) {
 	}
 	msg.From = c.UserID
 	msg.Timestamp = time.Now().UnixMilli()
-	r.hub.SendToUser(msg.To, msg)
+	r.hub.SendToUser(msg.To, msg, false)
 }
 
 func (r *Router) handlePing(c *Client) {
@@ -157,10 +163,6 @@ func (r *Router) handlePing(c *Client) {
 	}
 }
 
-// HandleDisconnect is called once a user has zero remaining open
-// WebSocket connections. If they were ringing, connecting, or
-// active on a call, that call is force-ended in memory and the other
-// party is told — nothing is written to any database here.
 func (r *Router) HandleDisconnect(userID string) {
 	ended := r.calls.EndAllForUser(userID)
 	for _, activeCall := range ended {
@@ -168,7 +170,6 @@ func (r *Router) HandleDisconnect(userID string) {
 		if userID == activeCall.CalleeID {
 			other = activeCall.CallerID
 		}
-
 		out := Message{
 			Type:      TypeCallEnd,
 			CallID:    activeCall.ID,
@@ -176,6 +177,6 @@ func (r *Router) HandleDisconnect(userID string) {
 			To:        other,
 			Timestamp: time.Now().UnixMilli(),
 		}
-		r.hub.SendToUser(other, out)
+		r.hub.SendToUser(other, out, false)
 	}
 }

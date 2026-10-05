@@ -125,7 +125,20 @@ fun CallinNavHost(skipInitialCallAutoNav: Boolean = false) {
 
     val startDestination = when (sessionState) {
         SessionState.NeedsProfile -> Routes.CompleteProfile
-        SessionState.LoggedIn -> Routes.Home
+        SessionState.LoggedIn -> {
+            // Skip the Home → Call flicker entirely when this process
+            // was launched via a notification tap (skipInitialCallAutoNav
+            // == false) and CallRepository already has a live call
+            // (set by an FCM push that landed before this composable
+            // even ran). In that exact case, start directly on the
+            // Call route instead of Home, so there's nothing to
+            // navigate away FROM.
+            if (!skipInitialCallAutoNav && container.callRepository.state.value !is CallUiState.Idle) {
+                Routes.Call
+            } else {
+                Routes.Home
+            }
+        }
         else -> Routes.Login
     }
 

@@ -58,6 +58,7 @@ sealed interface CallUiState {
 }
 
 private const val RING_TIMEOUT_MS = 60_000L
+private const val ENDED_AUTO_DISMISS_MS = 1500L
 
 class CallRepository(
     context: Context,
@@ -97,6 +98,7 @@ class CallRepository(
     private var ringtoneFocusRequest: AudioFocusRequest? = null
     private var vibrator: Vibrator? = null
     private var ringTimeoutJob: Job? = null
+    private var endedAutoDismissJob: Job? = null
     private var proximityWakeLock: PowerManager.WakeLock? = null
 
     fun start() {
@@ -104,9 +106,6 @@ class CallRepository(
         started = true
         scope.launch {
             signalingClient.incoming.collect { msg ->
-                // One bad message must never kill the collector (and
-                // with it, every future signaling message for the
-                // rest of this process's life) — isolate each one.
                 try {
                     handleMessage(msg)
                 } catch (t: Throwable) {
@@ -141,11 +140,14 @@ class CallRepository(
     }
 
     private fun setState(newState: CallUiState) {
+        // Any state change cancels a pending auto-dismiss from a
+        // PREVIOUS Ended state — relevant when a brand-new call
+        // starts again quickly after one just ended.
+        endedAutoDismissJob?.cancel()
+        endedAutoDismissJob = null
+
         _state.value = newState
-        // Each side effect isolated — a failure in one (e.g. the
-        // ringtone's audio focus request) must never prevent the
-        // others (e.g. the notification, or the foreground service)
-        // from running.
+
         runCatching { notifier.update(newState) }
             .onFailure { android.util.Log.e("CallRepository", "notifier.update failed", it) }
         runCatching { updateAudioRoute(newState) }
@@ -158,6 +160,25 @@ class CallRepository(
             .onFailure { android.util.Log.e("CallRepository", "manageRingTimeout failed", it) }
         runCatching { updateForegroundService(newState) }
             .onFailure { android.util.Log.e("CallRepository", "updateForegroundService failed", it) }
+
+        // CRITICAL FIX: this used to be the UI's job alone — a
+        // LaunchedEffect inside the Call screen composable that only
+        // ran if that screen actually got composed. If navigation
+        // ever skipped or tore down that screen before the effect
+        // fired (which a flickering notification-tap cold start can
+        // absolutely do), the repository's state stayed stuck on
+        // Ended forever — and since startCall() refuses to do
+        // anything unless state is Idle, every future call attempt
+        // from that device silently did nothing. Owning this timer
+        // here instead means the state ALWAYS returns to Idle on its
+        // own after a terminal call, regardless of what the UI is or
+        // isn't doing.
+        if (newState is CallUiState.Ended) {
+            endedAutoDismissJob = scope.launch {
+                delay(ENDED_AUTO_DISMISS_MS)
+                if (_state.value === newState) setState(CallUiState.Idle)
+            }
+        }
     }
 
     private fun updateForegroundService(state: CallUiState) {
@@ -227,18 +248,15 @@ class CallRepository(
 
     private fun startRingback() {
         if (ringbackPlayer != null) return
-
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION_SIGNALLING)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
-
         runCatching {
             ringbackFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(attributes)
                 .build().also { audioManager.requestAudioFocus(it) }
         }
-
         ringbackPlayer = runCatching {
             MediaPlayer().apply {
                 val afd = appContext.assets.openFd("ringback.mp3")
@@ -261,23 +279,19 @@ class CallRepository(
 
     private fun startIncomingAlert() {
         if (ringtonePlayer != null) return
-
         val attributes = AudioAttributes.Builder()
             .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
             .build()
-
         runCatching {
             ringtoneFocusRequest = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
                 .setAudioAttributes(attributes)
                 .build().also { audioManager.requestAudioFocus(it) }
         }
-
         scope.launch {
             try {
                 val fileName = ringtoneStore.getSelected()
                     ?: RingtoneAssets.list(appContext).firstOrNull()?.fileName
-
                 ringtonePlayer = runCatching {
                     MediaPlayer().apply {
                         if (fileName != null) {
@@ -295,7 +309,6 @@ class CallRepository(
                 android.util.Log.e("CallRepository", "starting ringtone failed", t)
             }
         }
-
         runCatching {
             vibrator = appContext.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
             vibrator?.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 800, 600), 0))
@@ -356,7 +369,6 @@ class CallRepository(
 
     private fun onInvite(msg: SignalingMessage, myId: String) {
         val callId = msg.callId ?: return
-
         if (msg.from == myId) {
             val current = _state.value
             if (current is CallUiState.Outgoing) {
@@ -364,7 +376,6 @@ class CallRepository(
             }
             return
         }
-
         if (_state.value !is CallUiState.Idle) return
         val callerId = msg.from ?: return
         val peer = lookupPeer(callerId)
@@ -385,7 +396,6 @@ class CallRepository(
     private fun onAccept(msg: SignalingMessage) {
         val info = currentInfo() ?: return
         val startedAt = if (msg.timestamp > 0) msg.timestamp else System.currentTimeMillis()
-
         if (isCaller) {
             val client = ensureWebRtc()
             val offer = preparedOfferSdp
@@ -436,7 +446,6 @@ class CallRepository(
         preparedOfferSdp = null
         readyToSendCandidates = false
         pendingLocalCandidates.clear()
-
         setState(
             CallUiState.Outgoing(
                 CallPeerInfo(UUID.randomUUID().toString(), peerId, peerUsername, peerDisplayName, peerAvatarUrl),
@@ -445,7 +454,6 @@ class CallRepository(
         )
         val payload = json.encodeToJsonElement(CallInvitePayload.serializer(), CallInvitePayload(peerId))
         signalingClient.send(SignalingMessage(type = SignalingType.CALL_INVITE, to = peerId, payload = payload))
-
         val client = ensureWebRtc()
         client.start(IceServers.defaults())
         client.createOffer { sdp -> preparedOfferSdp = sdp }
@@ -503,7 +511,6 @@ class CallRepository(
         val durationSeconds = if (wasActive) {
             ((System.currentTimeMillis() - (current as CallUiState.Active).startedAtMillis) / 1000).coerceAtLeast(0)
         } else 0L
-
         scope.launch {
             recentCallsStore.record(
                 RecentCallEntry(
@@ -547,7 +554,6 @@ class CallRepository(
     private fun ensureWebRtc(): WebRtcClient {
         val existing = webRtc
         if (existing != null) return existing
-
         val created = WebRtcClient(
             context = appContext,
             onLocalIceCandidate = { candidate ->
