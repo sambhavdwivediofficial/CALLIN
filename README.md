@@ -56,16 +56,6 @@ Full architecture notes: [`docs/architecture.md`](docs/architecture.md)
 | Real-time media | WebRTC · Opus · ICE/STUN/TURN |
 | Push notifications | Firebase Cloud Messaging |
 
-## Project structure
-
-```
-CALLIN/
-├── Callin-Android/     Android app (Kotlin + Jetpack Compose)
-├── Callin-Go/          Backend (Go)
-├── docs/               Architecture & setup documentation
-└── README.md
-```
-
 ## Status
 
 Actively in early development. Backend and Android app are being built in tandem — see `docs/` for current progress notes.
