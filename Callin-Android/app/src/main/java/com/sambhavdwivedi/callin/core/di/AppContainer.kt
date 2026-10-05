@@ -31,7 +31,7 @@ class AppContainer(context: Context) {
     val userRepository = UserRepository(userApi)
     val connectionRepository = ConnectionRepository(connectionApi, notificationHistoryStore)
 
-    val signalingClient = SignalingClient(tokenStore)
+    val signalingClient = SignalingClient(context.applicationContext, tokenStore)
 
     val callRepository = CallRepository(
         context = context.applicationContext,

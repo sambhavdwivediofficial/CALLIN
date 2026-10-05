@@ -9,6 +9,7 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -98,6 +99,27 @@ class MainActivity : ComponentActivity() {
             // CallinNavHost's own state watcher already routes to the
             // Call screen whenever state is non-Idle — nothing
             // else to do here.
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Self-healing: every time the app comes to the foreground —
+        // including after being backgrounded for a while, after a
+        // network drop, or after a previous registration silently
+        // failed — force an immediate (non-backoff) reconnect attempt
+        // and re-register the device's FCM token. This is what makes
+        // the app recover on its own the next time it's simply
+        // opened, instead of staying broken until a fresh login or a
+        // reinstall.
+        val container = (applicationContext as CallinApplication).container
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            val loggedIn = container.tokenStore.getAccessToken() != null &&
+                    container.tokenStore.getProfileCompleted()
+            if (loggedIn) {
+                container.signalingClient.ensureConnected()
+                container.userRepository.registerDeviceToken()
+            }
         }
     }
 }

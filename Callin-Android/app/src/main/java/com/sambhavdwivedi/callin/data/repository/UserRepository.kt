@@ -9,22 +9,21 @@ import com.sambhavdwivedi.callin.data.remote.dto.RegisterDeviceRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Wraps the user API and keeps a simple in-memory cache of the
- * caller's own profile in [me]. AppContainer holds one instance of
- * this repository for the app process, so every screen that reads
- * [me] shows the last-known profile instantly — no spinner — on
- * every visit after the first, while getMe() keeps it current in
- * the background each time it's called.
+ * caller's own profile in [me].
  */
 class UserRepository(private val api: UserApi) {
 
@@ -45,7 +44,6 @@ class UserRepository(private val api: UserApi) {
     suspend fun checkUsername(username: String): Result<Boolean> =
         runCatching { api.checkUsername(username).available }
 
-    /** Uploads raw image bytes as the caller's avatar and returns the new public URL. */
     suspend fun uploadAvatar(bytes: ByteArray, mimeType: String, fileName: String): Result<String> =
         runCatching {
             val body = bytes.toRequestBody(mimeType.toMediaType())
@@ -55,24 +53,46 @@ class UserRepository(private val api: UserApi) {
             url
         }
 
-    /** Sends a specific FCM token to the backend — called with a
-     * token we already have in hand (e.g. from
-     * CallinFirebaseMessagingService.onNewToken). */
     suspend fun registerDevice(token: String): Result<Unit> =
         runCatching {
             val response = api.registerDevice(RegisterDeviceRequest(token))
             if (!response.isSuccessful) error("Could not register device (${response.code()})")
         }
 
-    /** Fire-and-forget: fetches this install's current FCM token and
-     * registers it. Call once right after login/profile-completion so
-     * a device that already had a token before ever logging in still
-     * gets registered — onNewToken alone wouldn't catch that case,
-     * since Firebase only fires it when the token is first minted or
-     * rotated, not on every app start. */
+    private suspend fun fetchFcmToken(): String? = suspendCancellableCoroutine { cont ->
+        FirebaseMessaging.getInstance().token
+            .addOnSuccessListener { token -> if (cont.isActive) cont.resume(token) }
+            .addOnFailureListener { if (cont.isActive) cont.resume(null) }
+    }
+
+    /**
+     * Fetches this install's current FCM token and registers it,
+     * retrying a few times with backoff if either the token fetch or
+     * the network call fails. This used to be a single fire-and-
+     * forget attempt with no retry — if it failed even once (e.g. no
+     * network at the exact moment the app launched), the backend
+     * would never receive a valid token for this device until
+     * something else happened to trigger registration again, leaving
+     * that device completely unreachable by push in the meantime.
+     *
+     * Safe and cheap to call repeatedly — the backend's upsert is
+     * idempotent for an unchanged token, so calling this on every
+     * app resume (see MainActivity.onResume) is what makes a device
+     * self-heal from a failed registration without needing a
+     * reinstall or a fresh login.
+     */
     fun registerDeviceToken() {
-        FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
-            scope.launch { registerDevice(token) }
+        scope.launch {
+            var delayMs = 2000L
+            repeat(3) { attempt ->
+                val token = fetchFcmToken()
+                if (token != null) {
+                    val result = registerDevice(token)
+                    if (result.isSuccess) return@launch
+                }
+                if (attempt < 2) delay(delayMs)
+                delayMs *= 2
+            }
         }
     }
 }
