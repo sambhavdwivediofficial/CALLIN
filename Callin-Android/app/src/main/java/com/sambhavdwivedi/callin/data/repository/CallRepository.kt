@@ -99,6 +99,7 @@ class CallRepository(
     private var vibrator: Vibrator? = null
     private var ringTimeoutJob: Job? = null
     private var endedAutoDismissJob: Job? = null
+    private var iceFailureJob: Job? = null
     private var proximityWakeLock: PowerManager.WakeLock? = null
 
     fun start() {
@@ -554,6 +555,7 @@ class CallRepository(
     private fun ensureWebRtc(): WebRtcClient {
         val existing = webRtc
         if (existing != null) return existing
+
         val created = WebRtcClient(
             context = appContext,
             onLocalIceCandidate = { candidate ->
@@ -563,11 +565,76 @@ class CallRepository(
                     pendingLocalCandidates.add(candidate)
                 }
             },
-            onIceStateChanged = { },
+            onIceStateChanged = { iceState -> handleIceStateChanged(iceState) },
         )
         webRtc = created
         created.setMuted(_isMuted.value)
         return created
+    }
+
+    /**
+     * Previously this callback was a no-op (`onIceStateChanged = { }`),
+     * which is exactly why a call could show "Active" with the live
+     * timer running while carrying zero actual audio: the UI state
+     * was driven purely by signaling (call.accept received), never
+     * by whether the underlying WebRTC media connection actually
+     * succeeded. A call between two devices on different mobile
+     * carriers/states very often cannot establish a direct P2P path
+     * (carrier-grade NAT) and depends entirely on the TURN relay
+     * (IceServers.defaults()) — if that relay is overloaded, rate-
+     * limited, or down, ICE goes to FAILED (or lingers in
+     * DISCONNECTED) and no RTP audio ever flows, with nothing in the
+     * app ever noticing or logging it.
+     *
+     * This now: (1) logs every ICE state transition, so Logcat next
+     * time will show exactly what happened instead of total silence;
+     * (2) treats a sustained DISCONNECTED (not immediately — it can
+     * recover on its own within a few seconds, e.g. a brief network
+     * blip) or an outright FAILED state as a real connection failure,
+     * ending the call locally with a distinct reason so the user sees
+     * "Connection failed" instead of a call that looks alive forever
+     * while being silent.
+     */
+    private fun handleIceStateChanged(iceState: org.webrtc.PeerConnection.IceConnectionState) {
+        android.util.Log.i("CallRepository", "ICE connection state: $iceState")
+
+        when (iceState) {
+            org.webrtc.PeerConnection.IceConnectionState.CONNECTED,
+            org.webrtc.PeerConnection.IceConnectionState.COMPLETED -> {
+                iceFailureJob?.cancel()
+                iceFailureJob = null
+            }
+
+            org.webrtc.PeerConnection.IceConnectionState.FAILED -> {
+                iceFailureJob?.cancel()
+                iceFailureJob = null
+                endCallDueToConnectionFailure()
+            }
+
+            org.webrtc.PeerConnection.IceConnectionState.DISCONNECTED -> {
+                if (iceFailureJob == null) {
+                    iceFailureJob = scope.launch {
+                        delay(8000)
+                        android.util.Log.w("CallRepository", "ICE stayed DISCONNECTED for 8s — treating as failed")
+                        endCallDueToConnectionFailure()
+                    }
+                }
+            }
+
+            else -> Unit
+        }
+    }
+
+    private fun endCallDueToConnectionFailure() {
+        val info = currentInfo() ?: return
+        // Tell the other side normally (they'll just see "call
+        // ended") — the distinct "connection_failed" reason is kept
+        // local only, purely to show the right message on THIS
+        // device.
+        signalingClient.send(SignalingMessage(type = SignalingType.CALL_END, callId = info.callId, to = info.peerId))
+        recordCallEnd(info, "connection_failed")
+        cleanupWebRtc()
+        setState(CallUiState.Ended(info, "connection_failed"))
     }
 
     private fun sendCandidate(candidate: IceCandidate) {
@@ -592,6 +659,8 @@ class CallRepository(
     }
 
     private fun cleanupWebRtc() {
+        iceFailureJob?.cancel()
+        iceFailureJob = null
         stopRingback()
         stopIncomingAlert()
         proximityWakeLock?.let { if (it.isHeld) it.release() }

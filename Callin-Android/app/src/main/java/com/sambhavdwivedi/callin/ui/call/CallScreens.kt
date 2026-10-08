@@ -350,6 +350,7 @@ fun EndedCallScreen(info: CallPeerInfo, reason: String) {
         "declined" -> "Declined"
         "cancelled" -> "Cancelled"
         "ended" -> "Call ended"
+        "connection_failed" -> "Connection failed"
         else -> "Call ended"
     }
 
