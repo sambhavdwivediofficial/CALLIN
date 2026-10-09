@@ -212,9 +212,9 @@ fun CompleteProfileScreen(
             Spacer(Modifier.height(6.dp))
 
             Text(
-                text = "One last step before you start calling.",
+                text = "Important: Your profile details and username are permanent and cannot be changed after submission.",
                 color = SecondaryText,
-                fontSize = 14.sp
+                fontSize = 11.sp
             )
 
             Spacer(Modifier.height(24.dp))
