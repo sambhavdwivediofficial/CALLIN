@@ -565,7 +565,7 @@ class CallRepository(
                     pendingLocalCandidates.add(candidate)
                 }
             },
-            onIceStateChanged = { iceState -> handleIceStateChanged(iceState) },
+            onIceStateChanged = { iceState -> android.util.Log.i("CallRepository", "ICE state: $iceState") },
         )
         webRtc = created
         created.setMuted(_isMuted.value)
