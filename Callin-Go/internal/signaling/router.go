@@ -25,6 +25,12 @@ func NewRouter(hub *Hub, calls *call.Registry, pusher *push.FCMClient, users *us
 }
 
 func (r *Router) Handle(c *Client, msg Message) {
+	if msg.Type != TypePing && msg.Type != TypeWebRTCCandidate {
+		// Type + call id only. No user ids on purpose: logs must not
+		// become a record of who called whom.
+		r.logger.Info("signal", "type", string(msg.Type), "call_id", msg.CallID)
+	}
+
 	switch msg.Type {
 	case TypeCallInvite:
 		r.handleInvite(c, msg)
@@ -54,6 +60,7 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 
 	activeCall, err := r.calls.Start(c.UserID, payload.CalleeID)
 	if err != nil {
+		r.logger.Warn("invite rejected", "reason", "busy")
 		c.sendError("busy", "one of you is already on a call")
 		return
 	}
@@ -67,9 +74,10 @@ func (r *Router) handleInvite(c *Client, msg Message) {
 		Timestamp: time.Now().UnixMilli(),
 	}
 
-	// Only the invite needs the alive check — it's what decides
-	// whether the push wake-up fallback fires.
-	if delivered := r.hub.SendToUser(payload.CalleeID, out, true); !delivered {
+	delivered := r.hub.SendToUser(payload.CalleeID, out, true)
+	r.logger.Info("invite routed", "call_id", activeCall.ID, "via_websocket", delivered)
+
+	if !delivered {
 		callerInfo := push.CallerInfo{}
 		if u, err := r.users.GetByID(context.Background(), c.UserID); err == nil {
 			if u.Username != nil {
@@ -95,6 +103,7 @@ func (r *Router) handleTransition(c *Client, msg Message, to call.Status) {
 	}
 	activeCall, err := r.calls.Transition(msg.CallID, to)
 	if err != nil {
+		r.logger.Warn("transition rejected", "type", string(msg.Type), "call_id", msg.CallID, "error", err)
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
@@ -109,19 +118,11 @@ func (r *Router) handleTerminal(c *Client, msg Message, to call.Status) {
 	activeCall, err := r.calls.Transition(msg.CallID, to)
 	if err != nil {
 		if errors.Is(err, call.ErrCallNotFound) {
-			// The other party's own end/decline/cancel (or a
-			// disconnect) already removed this call from the
-			// registry moments earlier — there's nothing left to
-			// relay, and this is not an error: the call is, in fact,
-			// already over. Previously this fell into the same
-			// sendError path as a genuinely invalid transition,
-			// which replaced any relay attempt instead of
-			// recognizing "already ended" as a valid, harmless
-			// outcome — that's part of what could leave one side
-			// believing a call had ended while the other was never
-			// actually told.
+			// Already ended by the other side or by a disconnect.
+			// Nothing left to relay, and not an error.
 			return
 		}
+		r.logger.Warn("terminal rejected", "type", string(msg.Type), "call_id", msg.CallID, "error", err)
 		c.sendError("invalid_state", "that call transition is not allowed right now")
 		return
 	}
@@ -163,6 +164,8 @@ func (r *Router) handlePing(c *Client) {
 	}
 }
 
+// HandleDisconnect force-ends any call a fully-disconnected user was
+// in and tells the other side. Nothing is persisted anywhere.
 func (r *Router) HandleDisconnect(userID string) {
 	ended := r.calls.EndAllForUser(userID)
 	for _, activeCall := range ended {

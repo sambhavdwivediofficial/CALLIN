@@ -8,8 +8,12 @@ import (
 	"github.com/google/uuid"
 )
 
+// ringing -> ended is allowed so that an "end" arriving before the
+// call was ever accepted still releases both users. Without it the
+// registry entry stayed behind and both users were reported "busy"
+// until the server restarted.
 var validTransitions = map[Status][]Status{
-	StatusRinging:    {StatusConnecting, StatusDeclined, StatusCancelled, StatusMissed},
+	StatusRinging:    {StatusConnecting, StatusDeclined, StatusCancelled, StatusMissed, StatusEnded},
 	StatusConnecting: {StatusConnected, StatusEnded, StatusCancelled},
 	StatusConnected:  {StatusEnded},
 	StatusEnded:      {},
