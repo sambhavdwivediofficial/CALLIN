@@ -50,7 +50,7 @@ object ApiConfig {
 }
 ```
 
-- Pointing at a **deployed HTTPS backend** (see [`docs/backend-setup.md`](/backend-setup.md)) works out of the box.
+- Pointing at a **deployed HTTPS backend** (see [`docs/backend-setup.md`](docs/backend-setup.md)) works out of the box.
 - Pointing at a **local backend over plain HTTP** requires two changes, since the manifest sets
   `android:usesCleartextTraffic="false"`:
   1. Run `adb reverse tcp:8080 tcp:8080` for each connected device/emulator, so `localhost:8080`
