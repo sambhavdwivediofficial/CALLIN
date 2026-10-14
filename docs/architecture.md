@@ -83,7 +83,7 @@ everything is built once at startup and passed down by constructor.
 
 | Package | Responsibility |
 |---|---|
-| `internal/config` | Loads and validates every environment variable the process needs (see `docs/backend-setup.md`). Fails fast at boot if `DATABASE_URL` or `JWT_SECRET` is missing/invalid. |
+| `internal/config` | Loads and validates every environment variable the process needs (see [`docs/backend-setup.md`](/backend-setup.md)). Fails fast at boot if `DATABASE_URL` or `JWT_SECRET` is missing/invalid. |
 | `internal/db` | Owns the `pgxpool.Pool` — connection limits, lifetime, and a startup ping so a bad `DATABASE_URL` fails immediately rather than on the first request. |
 | `internal/auth` | Account registration/login (bcrypt), JWT issuance/verification (`golang-jwt/v5`, HMAC), and Google ID-token verification via OIDC discovery. |
 | `internal/user` | User profile, the two-step "complete your profile" flow for Google accounts, username availability, avatar URL persistence, FCM device-token bookkeeping. |
@@ -345,7 +345,7 @@ sequenceDiagram
     A->>A: record to on-device call history
 ```
 
-Full message shapes and every state transition are documented in `docs/signaling-protocol.md`.
+Full message shapes and every state transition are documented in [`docs/signaling-protocol.md`](/signaling-protocol.md).
 
 ## 6. Data Model
 
@@ -372,7 +372,7 @@ rather than dropped so the migration history stays linear and reversible.
   token (default 30 days) whose clock starts at issuance and never resets.
 - **WebSocket auth:** the access token travels as a query parameter (`/ws?token=...`), not a
   header — WebSocket clients cannot always set custom headers during the handshake. This is a
-  known, accepted trade-off for this transport; see `docs/signaling-protocol.md`.
+  known, accepted trade-off for this transport; see [`docs/signaling-protocol.md`](/signaling-protocol.md).
 - **Abuse protection:** a per-IP token-bucket rate limiter sits in front of every HTTP route,
   configurable via `RATE_LIMIT_RPS`/`RATE_LIMIT_BURST`.
 - **IP exposure:** direct peer-to-peer WebRTC inherently exposes each participant's IP address
@@ -396,5 +396,5 @@ rather than dropped so the migration history stays linear and reversible.
   replicas. The documented path forward, if CALLIN ever needs horizontal scaling, is moving
   both to Redis.
 - **Voice only.** No video, no SIP/PSTN bridging — by design, not as a stopgap.
-- **No automated backend test suite yet.** See [`docs/testing-guide.md`](docs/testing-guide.md) for the current 
+- **No automated backend test suite yet.** See [`docs/testing-guide.md`](/testing-guide.md) for the current 
   state of test coverage and where to start.

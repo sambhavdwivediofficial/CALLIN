@@ -98,7 +98,7 @@ Migrations are applied in filename order and are individually idempotent
 
 | Migration | Introduces |
 |---|---|
-| `0001_init.sql` | `users`, `devices`, `calls` (the `calls` table is schema-present but unused by the current backend — see `docs/architecture.md`, §6). |
+| `0001_init.sql` | `users`, `devices`, `calls` (the `calls` table is schema-present but unused by the current backend — see [`docs/architecture.md`](/architecture.md), [`§6`](/architecture.md#6-data-model)).
 | `0002_google_auth.sql` | Google Sign-In support: relaxes `users` so a Google-only account can exist without a password/username, adds `google_id`, `first_name`, `last_name`, `profile_completed`. |
 | `0003_connections.sql` | The `connections` request graph and a reserved, currently-unwritten `call_stats` anonymous counter table. |
 
@@ -121,7 +121,7 @@ curl http://localhost:8080/healthz
 # {"status":"ok"}
 ```
 
-If you intend to connect an Android app running on a **physical device over USB** to this local server, see the [`adb reverse`](docs/android-setup.md) instructions in [`docs/android-setup.md`](docs/android-setup.md) — the backend itself needs no special configuration for that case.
+If you intend to connect an Android app running on a **physical device over USB** to this local server, see the [`adb reverse`](/android-setup.md) instructions in [`docs/android-setup.md`](/android-setup.md) — the backend itself needs no special configuration for that case.
 
 ## 6. Google Sign-In
 
@@ -222,11 +222,11 @@ All authenticated routes require `Authorization: Bearer <access_token>`.
 
 | Method & Path | Description |
 |---|---|
-| `GET /ws?token=<access_token>` | Upgrades to a WebSocket. See [`docs/signaling-protocol.md`](docs/signaling-protocol.md) for the full message protocol. |
+| `GET /ws?token=<access_token>` | Upgrades to a WebSocket. See [`docs/signaling-protocol.md`](/signaling-protocol.md) for the full message protocol. |
 
 > **Note:** an earlier revision additionally exposed `GET /api/v1/calls` backed by a persisted
 > `calls` table. That endpoint and its handler have since been removed in favor of fully
-> on-device call history (see [`docs/architecture.md`](docs/architecture.md), [`§6`](docs/architecture.md#6-data-model)) — do not re-add it without also
+> on-device call history (see [`docs/architecture.md`](/architecture.md), [`§6`](/architecture.md#6-data-model)) — do not re-add it without also
 
 > re-introducing a server-side write path, which would be a deliberate privacy-model change.
 
@@ -236,7 +236,7 @@ All authenticated routes require `Authorization: Bearer <access_token>`.
 |---|---|
 | Process exits immediately with `config: DATABASE_URL is required` | `.env` missing or `DATABASE_URL` unset in the shell. |
 | Process exits with `JWT_SECRET is required and must be at least 16 characters` | Secret too short or unset. |
-| Every `/ws` upgrade fails | Confirm the logging middleware still forwards `Hijack()`/`Flush()` — see [`docs/architecture.md`](docs/architecture.md) [`§3.3`](docs/architecture.md#33-backend-architecture). This is the single most likely regression if that middleware is ever touched. |
+| Every `/ws` upgrade fails | Confirm the logging middleware still forwards `Hijack()`/`Flush()` — see [`docs/architecture.md`](/architecture.md) [`§3.3`](/architecture.md#33-backend-architecture). This is the single most likely regression if that middleware is ever touched. |
 | `POST /auth/google` always returns `401` | `GOOGLE_WEB_CLIENT_ID` doesn't match the Android app's web client ID, or the Google account's email isn't verified. |
 | Incoming calls never wake a backgrounded device | `FCM_SERVICE_ACCOUNT_FILE`/`FCM_PROJECT_ID` unset, or the device's FCM token is stale — check the server logs for "pruned dead device token". |
 | Avatar upload returns `503` | `SUPABASE_URL`/`SUPABASE_SERVICE_ROLE_KEY` unset. |

@@ -50,7 +50,7 @@ object ApiConfig {
 }
 ```
 
-- Pointing at a **deployed HTTPS backend** (see [`docs/backend-setup.md`](docs/backend-setup.md)) works out of the box.
+- Pointing at a **deployed HTTPS backend** (see [`docs/backend-setup.md`](/backend-setup.md)) works out of the box.
 - Pointing at a **local backend over plain HTTP** requires two changes, since the manifest sets
   `android:usesCleartextTraffic="false"`:
   1. Run `adb reverse tcp:8080 tcp:8080` for each connected device/emulator, so `localhost:8080`
@@ -70,7 +70,7 @@ private const val WEB_CLIENT_ID = "<your-oauth-web-client-id>.apps.googleusercon
 
 This **must** be a **Web application** OAuth client ID (Credential Manager signs the token for
 a web audience even though the request originates on Android), and it **must** exactly match
-the backend's `GOOGLE_WEB_CLIENT_ID` (see [`docs/backend-setup.md`](docs/backend-setup.md), [`§6`](docs/backend-setup.md#6-google-sign-in)). A mismatch surfaces as
+the backend's `GOOGLE_WEB_CLIENT_ID` (see [`docs/backend-setup.md`](/backend-setup.md), [`§6`](/backend-setup.md#6-google-sign-in)). A mismatch surfaces as
 a sign-in that appears to succeed on-device but is rejected by the backend with `401`.
 
 ### 3.3 Firebase (`google-services.json`)
@@ -165,7 +165,7 @@ minification as its own testing pass, not a one-line flag flip.
 
 | Package | Contents |
 |---|---|
-| `core/di` | `AppContainer` — the hand-rolled dependency graph (see `docs/architecture.md` §4.1). |
+| `core/di` | `AppContainer` — the hand-rolled dependency graph (see [`docs/architecture.md`](/architecture.md) [`§4.1`](/architecture.md#41-backend-architecture)). |
 | `core/network` | Retrofit/OkHttp setup, `AuthInterceptor` (transparent token refresh on `401`), `SignalingClient` (the WebSocket connection), `TokenStore`. |
 | `core/signaling` | Wire-format data classes mirroring the backend's `internal/signaling` message envelope. |
 | `core/webrtc` | `WebRtcClient`, `IceServers`. |
