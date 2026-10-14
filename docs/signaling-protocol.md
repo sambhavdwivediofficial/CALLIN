@@ -107,7 +107,7 @@ envelope itself — `call_id` and the server-resolved `to` are sufficient.
 
 ## 5. Call State Machine
 
-Call state is held entirely in-memory on the backend (`internal/call.Registry`) — see [`docs/architecture.md`](/architecture.md) [`§3.5`](/architecture.md#35-backend-architecture) for the implementation. Only the transitions below are legal; any
+Call state is held entirely in-memory on the backend (`internal/call.Registry`) — see [`docs/architecture.md`](architecture.md) [`§3.5`](architecture.md#35-backend-architecture) for the implementation. Only the transitions below are legal; any
 other requested transition returns an `invalid_state` error and has no effect.
 
 ```mermaid
@@ -135,7 +135,7 @@ rejected as an invalid transition, the registry entry never cleared, and **both*
 reported "busy" on every subsequent call attempt until the process restarted.
 
 Reaching any terminal state (`declined`, `cancelled`, `missed`, `ended`) removes the call from
-the active registry immediately — there is no persisted record of it server-side (see [`docs/architecture.md`](/architecture.md) [`§6`](/architecture.md#6-data-model)).
+the active registry immediately — there is no persisted record of it server-side (see [`docs/architecture.md`](architecture.md) [`§6`](architecture.md#6-data-model)).
 
 ## 6. Full Call Sequence
 

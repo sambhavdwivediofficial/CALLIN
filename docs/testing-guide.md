@@ -70,13 +70,13 @@ or real push delivery.
 ## 4. Manual Two-Device Call Checklist
 
 Requires **two physical devices**, two CALLIN accounts already connected as contacts (via QR
-scan — see [`docs/architecture.md`](/architecture.md) [`§4.7`](/architecture.md#47-android-client-architecture), and ideally two different networks (e.g. one on Wi-Fi,)
+scan — see [`docs/architecture.md`](architecture.md) [`§4.7`](architecture.md#47-android-client-architecture), and ideally two different networks (e.g. one on Wi-Fi,)
 one on mobile data) to exercise the TURN-relay path realistically.
 
 ### 4.1 Basic call
 
 - [ ] Device A calls Device B; B's screen rings within ~1–2 seconds on a healthy connection.
-- [ ] B accepts; both devices transition to the Active screen with a running timer that matches to the second on both devices (confirms both clients are reading the same server-assigned `startedAtMillis` — see [`docs/signaling-protocol.md`](/signaling-protocol.md) [`§6`](/signaling-protocol.md#6-full-call-sequence)).
+- [ ] B accepts; both devices transition to the Active screen with a running timer that matches to the second on both devices (confirms both clients are reading the same server-assigned `startedAtMillis` — see [`docs/signaling-protocol.md`](signaling-protocol.md) [`§6`](signaling-protocol.md#6-full-call-sequence)).
 - [ ] Audio is audible in both directions, with no more than brief initial jitter.
 - [ ] A ends the call; B's screen reflects "Call ended" within ~1 second, not stuck on Active.
 
@@ -105,7 +105,7 @@ one on mobile data) to exercise the TURN-relay path realistically.
 - [ ] Start a call on Wi-Fi, then disable Wi-Fi on one device mid-call (forcing a fall to mobile
       data) — the call should recover, not silently go to dead air. If it doesn't recover within
       ~8 seconds, confirm the app surfaces "Connection failed" rather than staying stuck on a
-      silent "Active" state (see [`docs/architecture.md`](/architecture.md) [`§4.4`](/architecture.md#44-android-client-architecture), item 4).
+      silent "Active" state (see [`docs/architecture.md`](architecture.md) [`§4.4`](architecture.md#44-android-client-architecture), item 4).
 - [ ] Put one device briefly into airplane mode mid-call, then take it back out — same
       expectation: either recovers, or clearly reports failure.
 - [ ] Kill the backend process (local dev only) mid-call — both clients should detect the drop,
@@ -123,7 +123,7 @@ one on mobile data) to exercise the TURN-relay path realistically.
 - [ ] Scanning a contact's live QR code sends a request; if they'd already scanned yours first,
       the connection completes instantly on both sides (mutual-request auto-accept).
 - [ ] A screenshot of a QR code does **not** scan — the flow is camera-only by design
-      (`/architecture.md` [`§4.7`](/architecture.md#47-android-client-architecture)); confirm this hasn't regressed.
+      (`/architecture.md` [`§4.7`](architecture.md#47-android-client-architecture)); confirm this hasn't regressed.
 
 ## 5. Backend API Smoke Testing
 
@@ -175,7 +175,7 @@ wscat -c "wss://$HOST/ws?token=$ACCESS_TOKEN"
 
 This is especially useful for reproducing a specific message-ordering bug without the overhead
 of two physical devices, and for confirming new message types or payload changes before wiring
-them into the Android client. See [`docs/signaling-protocol.md`](/signaling-protocol.md) for every message type and the
+them into the Android client. See [`docs/signaling-protocol.md`](signaling-protocol.md) for every message type and the
 exact payload shapes.
 
 ## 7. Push Notification Testing
@@ -232,7 +232,7 @@ or device:
 3. **JWT issuance/verification** (`internal/auth.TokenManager`) — expiry boundaries, tampered
    signatures, wrong signing method rejection.
 4. **Android `SignalingMessage` (de)serialization** round-trips against literal JSON fixtures
-   copied from [`docs/signaling-protocol.md`](/signaling-protocol.md) — this is the cheapest way to catch a client/server
+   copied from [`docs/signaling-protocol.md`](signaling-protocol.md) — this is the cheapest way to catch a client/server
    payload-shape drift before it reaches a physical device.
 5. **`CallRepository`'s state transitions** given a scripted sequence of incoming
    `SignalingMessage`s — this is the single highest-risk piece of client logic and currently has
